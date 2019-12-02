@@ -18,7 +18,7 @@ refmodel = '/data/infant/vae_objs/002_1d_T2wT1w_bs_augaug_ants_norm_k512n_e5_lr5
 #### Load obj = Single test data subject
 obj1ch = '/data/infant/vae_objs/002_T2wT1w_bs_1d_3c_p3_yzxline5_nzy5_7_ants_norm.obj'
 #### image affine matrix
-nii = nib.load('/data/infant/processed/002-C-T1_T2w.bst.bse.N3.ibeatspace.nn.nii.gz')._affine
+nii = nib.load('/data/infant/processed/002-C-T1_T2w.bst.bse.N3.nn.nii.gz')._affine
 #### init output names
 initinterfeatimg = '/data/infant/processed/test/002_3channel_test_x_noz.nii.gz'
 initoutput = '/data/infant/processed/test/002_3channel_test_predicted_noz.nii.gz'
