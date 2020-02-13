@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
-# import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
-import MRDataSet2_noupsample
+import MRDataSet_h5
+import MRDataSet_mult_dataset_h5
 from scipy.spatial import cKDTree
 import torch
 from torch.utils.data import ConcatDataset
@@ -17,6 +17,10 @@ import two_stage_cnn_uncertainty
 import MRDataSet2_mult_dataset
 import nibabel as nib
 import itertools
+import hdf5_dataset
+import hdf5_dataset_mult
+import h5py
+import MRDataSet2_noupsample
 
 processes = []
 
@@ -36,13 +40,14 @@ torch.set_printoptions(precision=4)
 
 
 class Solver(object):
-    def __init__(self, obj, valobj=None, epoch=30, batch_size=100000, lr=2e-4, f_dim =5, pad =3,
+    def __init__(self, obj, pkl=None, valobj=None, epoch=30, batch_size=100000, lr=2e-4, f_dim =5, pad =3,
                  beta=0.25, in_features=1, labels=3, shuffle=True, miscidx=None,
                  miscidx_val=None, params = None, channels=1, coords=False, DL=False, testobjs=None,
                  width=None, softdiceloss = False, dropout=False, uncertainty = False, uncertfn = None,
                  channels2 = 3):
         self.obj = obj
         self.valobj = valobj
+        self.pkl = pkl
         self.miscidx=miscidx
         self.miscidx_val = miscidx_val
         self.params = params
@@ -115,36 +120,58 @@ class Solver(object):
         if not self.uncertainty:
             self.data =[]
             for i in np.arange(len(self.obj)):
-                tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.obj[i],
+                tmpdata = MRDataSet_h5.MRDataSet(h5file=self.obj[i],
                                                    transform=transforms.Compose([
-                                                       MRDataSet2_noupsample.ToTensor(multiinput=multiinput, coords=self.coords)
+                                                       MRDataSet_h5.ToTensor(multiinput=multiinput, coords=self.coords)
                                                    ]), miscidxs=self.miscidx,
                                                             multiinput=multiinput, coords=self.coords)
+                # tmpdata = hdf5_dataset.HDF5Dataset(self.obj[i],
+                #                 recursive=False,
+                #                 load_data=False,
+                #                 data_cache_size=1,
+                #                 transform=hdf5_dataset.ToTensor
+                #                 )
                 self.data.append(tmpdata)
 
         elif self.uncertainty:
             self.data = []
             for i in np.arange(len(self.obj)):
-                tmpdata = MRDataSet2_mult_dataset.MRDataSet(pkl_file=self.obj[i], pkl_file2=self.uncertfn[i],
+                tmpdata = MRDataSet_mult_dataset_h5.MRDataSet(h5file=self.obj[i], h5file2=self.uncertfn[i],
                                                    transform=transforms.Compose([
-                                                       MRDataSet2_mult_dataset.ToTensor(multiinput=multiinput, coords=self.coords)
+                                                       MRDataSet_mult_dataset_h5.ToTensor(multiinput=multiinput, coords=self.coords)
                                                    ]), miscidxs=self.miscidx,
                                                             multiinput=multiinput, coords=self.coords)
+                # tmpdata = hdf5_dataset_mult.HDF5Dataset(self.obj[i], self.uncertfn[i],
+                #                                    recursive=False,
+                #                                    load_data=False,
+                #                                    data_cache_size=1,
+                #                                    transform=hdf5_dataset.ToTensor
+                #                                    )
+
                 self.data.append(tmpdata)
         del tmpdata
 
         self.dataloader = DataLoader(ConcatDataset(self.data), batch_size=self.batch_size, shuffle=self.shuffle,
-                                     num_workers=2, drop_last=False)
+                                     num_workers=4, drop_last=False)
 
         if self.valobj:
+            # self.valdata = MRDataSet_h5.MRDataSet(h5file=self.valobj,
+            #                                             transform=transforms.Compose([
+            #                                                 MRDataSet_h5.ToTensor(multiinput=multiinput,coords=self.coords)
+            #                                             ]), miscidxs=self.miscidx_val,
+            #                                         multiinput=multiinput,coords=self.coords)
+            #
+            # self.valdataloader = DataLoader(self.valdata, batch_size=self.batch_size, shuffle=self.shuffle,
+            #                              num_workers=5, drop_last=False)
             self.valdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.valobj,
-                                                        transform=transforms.Compose([
-                                                            MRDataSet2_noupsample.ToTensor(multiinput=multiinput,coords=self.coords)
-                                                        ]), miscidxs=self.miscidx_val,
-                                                    multiinput=multiinput,coords=self.coords)
+                                                           transform=transforms.Compose([
+                                                               MRDataSet2_noupsample.ToTensor(multiinput=multiinput,
+                                                                                              coords=self.coords)
+                                                           ]), miscidxs=self.miscidx_val,
+                                                           multiinput=multiinput, coords=self.coords)
 
             self.valdataloader = DataLoader(self.valdata, batch_size=self.batch_size, shuffle=self.shuffle,
-                                         num_workers=5, drop_last=False)
+                                            num_workers=4, drop_last=False)
 
         # Optimizer
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, betas=(0.5, 0.999))
@@ -255,9 +282,9 @@ class Solver(object):
 
                 label_loss = self.CE_Loss(label_OHE, y)
 
-                total_loss = label_loss
+                self.total_loss = label_loss
                 self.optimizer.zero_grad()
-                total_loss.backward(retain_graph=True)
+                self.total_loss.backward(retain_graph=True)
                 # total_loss.backward()
 
                 if self.diceloss:
@@ -331,7 +358,7 @@ class Solver(object):
                         # label_OHE2.backward(diceloss)
                 else:
                     self.optimizer.step()
-                    diceloss = total_loss
+                    diceloss = self.total_loss
 
                 ## pass back through f with the features
                 # xhat.backward(self.model.grad_for_encoder)
@@ -344,88 +371,84 @@ class Solver(object):
                 # self.optimizer.step()
 
                 if self.diceloss:
-                    self.data.transform = transforms.Compose([MRDataSet2_noupsample.ToTensor()])
+                    self.data.transform = transforms.Compose([MRDataSet_h5.ToTensor()])
 
                 label_losses.append(label_loss.detach().data)
                 total_losses.append(diceloss.detach().data)
 
                 # TODO: test
-                if idx != 0 and idx % 10 == 0:
+                if idx != 0 and (self.batch_size * idx) % 100000 == 0:
 
                     # AVG Losses
                     label_losses_cat = torch.stack(label_losses, 0).mean()
                     total_losses_cat = torch.stack(total_losses, 0).mean()
-                    print('\n[{:02d}/{:d}] label_loss:{:.2f} dice_loss:{:.7f}'.format(
+                    print('\n[{:02d}/{:d}] label_loss:{:.7f} total_loss:{:.7f}'.format(
                         e+1,self.epoch, label_losses_cat, total_losses_cat))
 
-                if e == self.epoch-1:
-                    # self.label_OHE = label_OHE
-                    yhatidxs = torch.argmax(label_OHE, dim=1)
-                    diff = yhatidxs - y
-                    loc = diff.nonzero()
-                    loc = loc.squeeze(1).data
-                    misclassified.append(indices[loc].tolist())
-                    misclassified_softmax.append(label_OHE.detach())
+                # if e == self.epoch-1:
+                #     # self.label_OHE = label_OHE
+                #     yhatidxs = torch.argmax(label_OHE, dim=1)
+                #     diff = yhatidxs - y
+                #     loc = diff.nonzero()
+                #     loc = loc.squeeze(1).data
+                #     misclassified.append(indices[loc].tolist())
+                #     misclassified_softmax.append(label_OHE.detach())
 
 
                 del neigh, ylabel, sample, y
-            # compute validation loss
-            # if self.valobj:
-            #     label_losses = []
-            #     total_losses = []
-            #     with torch.no_grad():
-            #         for idx, (sample, indices) in enumerate(self.valdataloader):
-            #             if self.miscidx is not None:
-            #                 images1 = sample['image1_t1']
-            #                 neighbors = sample['neighbors_t1']
-            #                 neighbors_z = sample['neighbors_z_t1']
-            #                 neighbors_y = sample['neighbors_y_t1']
-            #                 ylabel = sample['label']
-            #
-            #             else:
-            #
-            #                 images1 = sample['image1']
-            #                 # line = sample['line']
-            #                 # zline = sample['zline']
-            #                 neighbors = sample['neighbors']
-            #                 neighbors_z = sample['neighbors_z']
-            #                 neighbors_y = sample['neighbors_y']
-            #                 ylabel = sample['label']
-            #
-            #             X1 = Variable(images1.cuda(), requires_grad=False)
-            #             neigh = Variable(neighbors.cuda(), requires_grad=False)
-            #             neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
-            #             neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
-            #             # Vert = Variable(line.cuda(), requires_grad=False)
-            #             # Zline = Variable(zline.cuda(), requires_grad=False)
-            #             y = Variable(ylabel.cuda(), requires_grad=False)
-            #
-            #             label_OHE, xhat = self.model(X1, neigh, neigh_z, neigh_y)
-            #
-            #
-            #             label_loss = self.CE_Loss(label_OHE, y)
-            #
-            #             if e == self.epoch - 1:
-            #                 yhatidxs = torch.argmax(label_OHE, dim=1)
-            #                 diff = yhatidxs - y
-            #                 loc = diff.nonzero()
-            #                 loc = loc.squeeze(1).data
-            #                 misclassified_val.append(indices[loc].tolist())
-            #
-            #             total_loss = label_loss
-            #
-            #             label_losses.append(label_loss.detach().data)
-            #             total_losses.append(total_loss.detach().data)
-            #
-            #             # TODO: test
-            #             if idx != 0 and idx % 10 == 0:
-            #                 # AVG Losses
-            #                 label_losses_cat = torch.stack(label_losses, 0).mean()
-            #                 total_losses_cat = torch.stack(total_losses, 0).mean()
-            #                 print('\nVALIDATION [{:02d}/{:d}] label_loss:{:.2f} total_loss:{:.7f}'.format(
-            #                     e + 1, self.epoch, label_losses_cat, total_losses_cat))
-            #
-            #             del X1, neigh, images1, ylabel, sample, y
+                # if idx == 0:
+                #     break
+
+            if self.valobj:
+                self.set_mode('eval')
+                with torch.no_grad():
+                    for idx, (sample, indices, orig_indices) in enumerate(self.valdataloader):
+                        if self.uncertainty:
+                            neighbors = sample['neighbors']
+                            neighbors_z = sample['neighbors_z']
+                            neighbors_y = sample['neighbors_y']
+                            ylabel = sample['label']
+                            neighbors2 = sample['neighbors2']
+                            neighbors2_z = sample['neighbors2_z']
+                            neighbors2_y = sample['neighbors2_y']
+
+                            neigh = Variable(neighbors.cuda(), requires_grad=False)
+                            neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
+                            neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
+                            y = Variable(ylabel.cuda(), requires_grad=False)
+                            neigh2 = Variable(neighbors2.cuda(), requires_grad=False)
+                            neigh2_z = Variable(neighbors2_z.cuda(), requires_grad=False)
+                            neigh2_y = Variable(neighbors2_y.cuda(), requires_grad=False)
+
+                            label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y, neigh2, neigh2_z, neigh2_y)
+
+                        else:
+                            neighbors = sample['neighbors']
+                            neighbors_z = sample['neighbors_z']
+                            neighbors_y = sample['neighbors_y']
+                            ylabel = sample['label']
+
+                            neigh = Variable(neighbors.cuda(), requires_grad=False)
+                            neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
+                            neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
+                            y = Variable(ylabel.cuda(), requires_grad=False)
+
+                            label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y)
+
+                        label_loss = self.CE_Loss(label_OHE, y)
+
+                        total_loss = label_loss
+
+                        label_losses.append(label_loss.detach().data)
+                        total_losses.append(total_loss.detach().data)
+
+                        if idx != 0 and (self.batch_size * idx) % 100000 == 0:
+                            label_losses_cat = torch.stack(label_losses, 0).mean()
+                            total_losses_cat = torch.stack(total_losses, 0).mean()
+                            print('\n[{:02d}/{:d}] val_label_loss:{:.7f} val_total_loss:{:.7f}'.format(
+                                e+1,self.epoch, label_losses_cat, total_losses_cat))
+
+                self.set_mode('train')
 
         self.misclassified = misclassified
         self.misclassified_val = misclassified_val
@@ -433,14 +456,14 @@ class Solver(object):
 
         print("[*] Training Finished!")
 
-    def test(self, intimgname, intoutname, affine, dataloader= None, batchsize =1000, second_model=None,
-             miscidx=None, correction_model=None):
+    def test(self, intimgname, intoutname, affine, h5file= None, h5file2=None, batchsize =1000, second_model=None,
+             miscidx=None, correction_model=None, pklfile=None):
         self.set_mode('eval')
         self.model.eval()
         X_list = []
         labeled_list = []
         self.xhat_list = []
-        if dataloader is not None:
+        if h5file is not None:
             datanum = 1
         else:
             datanum = len(self.obj)
@@ -449,11 +472,25 @@ class Solver(object):
             self.xhats = []
             self.maxindxs = []
             label_OHEs = []
-            if dataloader is None:
+            if h5file is None:
                 ind_dataloader = DataLoader(self.data[i], batch_size=batchsize, shuffle=False,
-                                             num_workers=3, drop_last=False)
+                                             num_workers=4, drop_last=False)
             else:
-                ind_dataloader = dataloader
+                if self.uncertainty:
+                    tmpdata = MRDataSet_mult_dataset_h5.MRDataSet(h5file=h5file, h5file2=h5file2,
+                                                                  transform=transforms.Compose([
+                                                                      MRDataSet_mult_dataset_h5.ToTensor(
+                                                                          multiinput=False, coords=self.coords)
+                                                                  ]), miscidxs=self.miscidx,
+                                                                  multiinput=False, coords=self.coords)
+                else:
+                    tmpdata= MRDataSet_h5.MRDataSet(h5file=h5file, #pkl=pklfile,
+                                                     transform=transforms.Compose([
+                                                         MRDataSet_h5.ToTensor(multiinput=False, coords=self.coords)
+                                                     ]), miscidxs=self.miscidx,
+                                                     multiinput=False, coords=self.coords)
+                ind_dataloader = DataLoader(tmpdata, batch_size=batchsize, shuffle=False,
+                                             num_workers=4, drop_last=False)
 
             for idx, (sample, indices, orig_indices) in enumerate(ind_dataloader):
 
@@ -536,37 +573,42 @@ class Solver(object):
             # labeled_list.append(labeled)
 
             # labeled = np.argmax(labeled, axis=1)
-            if dataloader is None:
-                size = self.data[i].dataset.dataOrigShape[:3]
-                origindices = self.data[i].dataset.indices
+
+            if h5file is None:
+                fn = self.obj[i]
             else:
-                size = dataloader.dataset.dataset.dataOrigShape[:3]
-                origindices = dataloader.dataset.dataset.indices
+                fn = h5file
 
-            X = np.zeros(size)
-            b = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
-            values = np.zeros([b.shape[0], self.f_dim])
-            for B in np.arange(len(b)):
-                values[B] = b[B].data.cpu().numpy()
+            with h5py.File(fn, 'r') as f:
+                size = tuple(f.attrs['origsize'][:3])
+                origindices = f['indices']
+                # size = self.data[i].dataset.dataOrigShape[:3]
+                # origindices = self.data[i].dataset.indices
 
-            size4d = size + (self.f_dim,)
-            Y = np.zeros(size4d)
-            size3d = size + (self.labels,)
-            L = np.zeros(size3d)
+                X = np.zeros(size)
+                b = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
+                values = np.zeros([b.shape[0], self.f_dim])
+                for B in np.arange(len(b)):
+                    values[B] = b[B].data.cpu().numpy()
 
-            for idx in np.arange(maxindices.shape[0]):
-                idxs = np.unravel_index(origindices[idx], size)
-                X[idxs] = maxindices[idx] + 1
-                Y[idxs] = values[idx]
-                L[idxs] = labeled[idx]
+                size4d = size + (self.f_dim,)
+                Y = np.zeros(size4d)
+                size3d = size + (self.labels,)
+                L = np.zeros(size3d)
 
-            recon = nib.Nifti1Image(Y, affine=affine[i])
-            nib.save(recon, filename=intimgname[i])
+                for idx in np.arange(maxindices.shape[0]):
+                    idxs = np.unravel_index(origindices[idx], size)
+                    X[idxs] = maxindices[idx] + 1
+                    Y[idxs] = values[idx]
+                    L[idxs] = labeled[idx]
 
-            recon = nib.Nifti1Image(X, affine=affine[i])
-            nib.save(recon, filename=intoutname[i])
+                recon = nib.Nifti1Image(Y, affine=affine[i])
+                nib.save(recon, filename=intimgname[i])
 
-            labeled_list.append(L.reshape(np.prod(size3d[:3]), 3))
+                recon = nib.Nifti1Image(X, affine=affine[i])
+                nib.save(recon, filename=intoutname[i])
+
+                labeled_list.append(L.reshape(np.prod(size3d[:3]), 3))
 
         #     X_list.append(X)
         #     self.xhat_list.append(self.xhats)

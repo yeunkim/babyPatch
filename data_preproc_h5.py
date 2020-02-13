@@ -2,10 +2,11 @@ import nibabel as nib
 import numpy as np
 from normalization import normalize_mri
 from scipy import spatial
+import h5py
 
 class imagepatches(object):
 
-    def __init__(self, fname, mask, label,
+    def __init__(self, fname, mask, label, fnoutput, groupname,
                  gm=150, wm=250, csf=10, num_classes=4, pad = 3, masklabel=False,
                  fname_t1=None, k_t2=4, k_t2_init=None,
                  k_t1=2, k_t1_init=None, threedim=False, channels=None, coords=None,
@@ -23,6 +24,8 @@ class imagepatches(object):
         self.fname = fname
         self.fname_t1 = fname_t1
         self.fname_mask = mask
+        self.fnoutput = fnoutput
+        self.groupname = groupname
 
         self.k_t2 = k_t2
         self.k_t1 = k_t1
@@ -58,9 +61,7 @@ class imagepatches(object):
         self.label[self.label == csf] = 2
         self.num_classes = num_classes
 
-        self.indices_upsampled =[]
-
-        self.upsample()
+        self.prep()
         self.get_bounds()
 
         if threedim:
@@ -80,14 +81,9 @@ class imagepatches(object):
             self.render_patches()
             self.create_data_struct()
 
-    def upsample(self):
-        # self.data = scipy.ndimage.zoom(self.data, (self.upsamplefactor,self.upsamplefactor,self.upsamplefactor),
-        #                                order=self.order)
-        #
-        # self.mask = scipy.ndimage.zoom(self.mask, (self.upsamplefactor, self.upsamplefactor, self.upsamplefactor),
-        #                                        order=0)
+    def prep(self):
         self.mask[self.mask >0] =1
-        self.dataUpsampledShape = self.data.shape
+        self.origsize = self.data.shape
 
     def normalize(self):
         self.mean, self.std = normalize_mri(self.data, self.mask, self.k_t2, self.k_t2_init)
@@ -139,7 +135,6 @@ class imagepatches(object):
         ## break down into patches
         # approximate array allocation
         N = int(np.count_nonzero(self.mask))
-        self.X = np.zeros([N,1])
         self.X5 = np.zeros([N])
         self.neighbors = np.zeros([N, 2*pad+1, 2*pad+1])
         self.neighbors_z = np.zeros([N, 2 * pad + 1, 2 * pad + 1])
@@ -157,7 +152,7 @@ class imagepatches(object):
 
         ravel = lambda x, y: (y[2] * y[1] * x[0]) + (y[2] * x[1]) + x[2]
 
-        for k in range(self.zpos, self.zpos_end):
+        for k in range(self.zpos, self.zpos_end+1):
             testslice = self.data[:,:,k]
             maskslice = self.mask[:,:,k]
             labelslice = self.label[:,:,k]
@@ -270,7 +265,7 @@ class imagepatches(object):
 
         ravel = lambda x, y: (y[2] * y[1] * x[0]) + (y[2] * x[1]) + x[2]
 
-        for k in range(self.zpos, self.zpos_end):
+        for k in range(self.zpos, self.zpos_end+1):
             maskslice = self.mask[:,:,k]
             labelslice = self.label[:,:,k]
 
@@ -320,7 +315,7 @@ class imagepatches(object):
 
         ravel = lambda x, y: (y[2] * y[1] * x[0]) + (y[2] * x[1]) + x[2]
 
-        for k in range(self.zpos, self.zpos_end):
+        for k in range(self.zpos, self.zpos_end+1):
             testslice = self.data[:,:,k,:]
             maskslice = self.mask[:,:,k]
             labelslice = self.label[:,:,k]
@@ -364,14 +359,26 @@ class imagepatches(object):
     def create_data_struct(self):
         ### test
         # nonzeros = np.count_nonzero(self.X)
+
+
         nonzeros = len(self.indices)
 
         self.X5 = self.X5[0:nonzeros]
         self.neighbors = self.neighbors[0:nonzeros]
         self.neighbors_z = self.neighbors_z[0:nonzeros]
         self.neighbors_y = self.neighbors_y[0:nonzeros]
-        # self.line = self.line[0:nonzeros,:]
-        # self.zline = self.zline[0:nonzeros, :]
+
+        with h5py.File(self.fnoutput, "w") as f:
+            g1 = f.create_group(self.groupname)
+            g1.create_dataset('neighbors', data=self.neighbors)
+            g1.create_dataset('neighbors_y', data=self.neighbors_y)
+            g1.create_dataset('neighbors_z', data=self.neighbors_z)
+            g1.create_dataset('targets', data=self.X5)
+            g1.create_dataset('indices', data=self.indices)
+            g1.attrs['origsize'] = self.dataOrigShape
+
+
+
         if not self.coords is None:
             self.coordsvec = self.coordsvec[0:nonzeros]
 
