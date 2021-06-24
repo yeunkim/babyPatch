@@ -10,6 +10,7 @@ from datetime import datetime
 import run_classify_weightedImg
 import run_two_stage_cnn_orig_truncatedloss
 import data_preproc_onestage
+import generate_obj_files
 
 numchannels = 4
 iterations = 2
@@ -54,7 +55,7 @@ spherecoords=[]
 # valspherecoords=[]
 # valspherecoords.append('/data/infant/spherecoords/atlas_Int_M6_T2_cartesian_new_coords_masked_{0}_xfmed_spherecoord_filled.nii.gz'.format(valsubjs[0]))
 
-#
+
 mean = []
 var = []
 valmean = []
@@ -63,14 +64,15 @@ valvar = []
 validation=True
 iterative = 1
 
-############################################################################################
-############################################################################################
-### train the 1st model
-############################################################################################
-############################################################################################
 for ITER in np.arange(iterative):
     print('Starting iteration number {0}'.format(ITER+1))
     suffix = '2021_10slices' + str(ITER)
+
+    ############################################################################################
+    ############################################################################################
+    ### train the 1st model
+    ############################################################################################
+    ############################################################################################
     initinterfeatimgs_alliterations = []
     initoutputs_alliterations = []
     initimodels = []
@@ -130,7 +132,7 @@ for ITER in np.arange(iterative):
 
     ############################################################################################
     ############################################################################################
-    ### computer uncertainty images
+    ### compute uncertainty images
     ############################################################################################
     ############################################################################################
     uncertainty.render_uncert_imgs(fns_whole, var, niis,
@@ -139,29 +141,14 @@ for ITER in np.arange(iterative):
         uncertainty.render_uncert_imgs(valfns_whole, valvar, valniis,
                                        subjs['val'], numchannels, iterations, pkl=True, suffix='val'+suffix)
     del var, valvar, mean, valmean
+
     #### Choose which model/intermediate dataset
     gm2wm = 0.91487
     csf2wm = 0.48580
-    maes = []
-    for j in np.arange(iterations):
-        mae = 0
-        for i in np.arange(len(initoutputs_alliterations)):
-            nii = nib.load(initoutputs_alliterations[j][i])
-            data = nii.get_fdata()
-            wm = np.sum(data == 1)
-            gm = np.sum(data == 2)
-            csf = np.sum(data == 3)
-            mae = (np.abs((gm/wm) - gm2wm) + np.abs((csf/wm) - csf2wm))/2
-            mae += mae
-            del data
-        maes.append(mae/len(initoutputs_alliterations))
-    smallestidx = np.argmin(maes)
-    print(initimodels[smallestidx])
-    initinterfeatimgs_for_refstage = initinterfeatimgs_alliterations[smallestidx][:-len(valinitinterfeatimgs)]
-    initoutputs_for_refstage = initoutputs_alliterations[smallestidx][:-len(valinitinterfeatimgs)]
-    if validation:
-        valinitinterfeatimgs_for_refstage = initinterfeatimgs_alliterations[smallestidx][-len(valinitinterfeatimgs):]
-        valinitoutputs_for_refstage = initoutputs_alliterations[smallestidx][-len(valinitinterfeatimgs):]
+    initinterfeatimgs_for_refstage, initoutputs_for_refstage, \
+    valinitinterfeatimgs_for_refstage, valinitoutputs_for_refstage, smallestidx = uncertainty.select_best_model(gm2wm, csf2wm, iterations,
+                                                    initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,
+                                                    valinitinterfeatimgs, validation=True)
 
     ############################################################################################
     ############################################################################################
@@ -170,159 +157,61 @@ for ITER in np.arange(iterative):
     ############################################################################################
     uncertniis = []
     valuncertniis = []
+    numslices = 10
+    objs = []
+    uncerts = []
+    valobjs = []
+    valuncerts = []
     for i in np.arange(len(fns)):
-        uncertniis.append('//data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}_{4}.nii.gz'.format(subjs['train'][i], numchannels, iterations, i, suffix))
+        uncertniis.append('/data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}_{4}.nii.gz'.format(subjs['train'][i], numchannels, iterations, i, suffix))
+        fname = generate_obj_files.generate_mask(initinterfeatimgs_for_refstage[i])
+        obj = '/data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
+                                                                                            subjs['train'][i], suffix)
+        objs.append('{0}.obj'.format(obj))
+        generate_obj_files.generate_obj_files(obj,initinterfeatimgs_for_refstage[i],fname,labels[i])
+        uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
+                                                                                    subjs['train'][i], suffix)
+        uncerts.append('{0}.obj'.format(uncert))
+        generate_obj_files.generate_obj_files(uncert, uncertniis[i], fname, labels[i])
+        ## generate whole images
+        objs_whole = []
+        uncerts_whole = []
+        obj = '//data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
+                                                                                                  subjs['train'][i],suffix)
+        objs_whole.append('{0}.obj'.format(obj))
+        generate_obj_files.generate_obj_files(obj, initinterfeatimgs_for_refstage[i], masks[i], labels[i])
+        uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
+                                                                                          subjs['train'][i],suffix)
+        uncerts_whole.append('{0}.obj'.format(uncert))
+        generate_obj_files.generate_obj_files(uncert, uncertniis[i], masks[i], labels[i])
     if validation:
         for i in np.arange(len(valfns)):
             valuncertniis.append(
                 '//data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}_val{4}.nii.gz'.format(subjs['val'][i], numchannels, iterations, i,
                                                                                       suffix))
-
-    objs = []
-    uncerts = []
-    ## validation preset
-    valobjs = []
-    valuncerts = []
+            fname = generate_obj_files.generate_mask(valinitinterfeatimgs_for_refstage[i])
+            obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch,i, smallestidx,
+                                                                                                   subjs['val'][i], suffix)
+            valobjs.append('{0}.obj'.format(obj))
+            generate_obj_files.generate_obj_files(obj, valinitinterfeatimgs_for_refstage[i], fname, vallabels[i])
+            uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i,smallestidx,
+                                                                                           subjs['val'][i], suffix)
+            valuncerts.append('{0}.obj'.format(uncert))
+            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], fname, vallabels[i])
+            ## generate whole images
+            valobjs_whole = []
+            valuncerts_whole = []
+            obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,
+                                                                                                         iterations,subjs['val'][i],suffix)
+            valobjs_whole.append('{0}.obj'.format(obj))
+            generate_obj_files.generate_obj_files(obj, valinitinterfeatimgs_for_refstage[i], valmasks[i], vallabels[i])
+            uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,i, iterations,
+                                                                                                 subjs['val'][i],suffix)
+            valuncerts_whole.append('{0}.obj'.format(uncert))
+            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], valmasks[i], vallabels[i])
 
     print('First model finished. Generating pickled images, iteration number {0}'.format(ITER + 1))
-    ext = 'obj'
-    numslices = 10
-    for i in np.arange(0,len(initinterfeatimgs_for_refstage)):
-        slicesused = nib.load(initinterfeatimgs_for_refstage[i])
-        slicesused_data = slicesused.get_fdata()[:,:,:,0]
-        slicesused_data[slicesused_data > 0] = 255
-        recon = nib.Nifti1Image(slicesused_data.astype(np.uint8), slicesused._affine)
-        fname = initinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-        nib.save(recon, fname)
 
-        obj = '//data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx, subjs['train'][i],suffix)
-        objs.append('{0}.{1}'.format(obj, ext))
-        data0 = data_preproc_onestage.imagepatches(
-            fname=initinterfeatimgs_for_refstage[i],
-            mask=fname,
-            label=labels[i],
-            gm=2, wm=1, csf=3, num_classes=4, channels=numchannels, # spherecoords=spherecoords[i],
-            masklabel=True, pad=pad)
-        file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-        pickle.dump(data0, file_obj, protocol=4)
-        file_obj.close()
-
-        uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx, subjs['train'][i],suffix)
-        uncerts.append('{0}.{1}'.format(uncert, ext))
-        data0 = data_preproc_onestage.imagepatches(
-            fname=uncertniis[i],
-            mask=fname,
-            label=labels[i],
-            gm=2, wm=1, csf=3, num_classes=4, channels=3,
-            masklabel=True, pad=pad, normalize=False)
-        file_obj = open('{0}.{1}'.format(uncert, ext), 'wb')
-        pickle.dump(data0, file_obj, protocol=4)
-        file_obj.close()
-    if validation:
-        for i in np.arange(0, len(valinitinterfeatimgs_for_refstage)):
-            slicesused = nib.load(valinitinterfeatimgs_for_refstage[i])
-            slicesused_data = slicesused.get_fdata()[:,:,:,0]
-            slicesused_data[slicesused_data > 0] = 255
-            recon = nib.Nifti1Image(slicesused_data.astype(np.uint8), slicesused._affine)
-            fname = valinitinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-            nib.save(recon, fname)
-
-            obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch, i,
-                                                                                                smallestidx, subjs['val'][i],
-                                                                                                suffix)
-            valobjs.append('{0}.{1}'.format(obj, ext))
-            data0 = data_preproc_onestage.imagepatches(
-                fname=valinitinterfeatimgs_for_refstage[i],
-                mask=fname,
-                label=vallabels[i],
-                gm=2, wm=1, csf=3, num_classes=4, channels=numchannels, # spherecoords=valspherecoords[i],
-                masklabel=True, pad=pad, normalize=False)
-            file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-            pickle.dump(data0, file_obj, protocol=4)
-            file_obj.close()
-
-            uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
-                                                                                        subjs['val'][i], suffix)
-            valuncerts.append('{0}.{1}'.format(uncert, ext))
-            data0 = data_preproc_onestage.imagepatches(
-                fname=valuncertniis[i],
-                mask=fname,
-                label=vallabels[i],
-                gm=2, wm=1, csf=3, num_classes=4, channels=3,
-                masklabel=True, pad=pad, normalize=False)
-            file_obj = open('{0}.{1}'.format(uncert, ext), 'wb')
-            pickle.dump(data0, file_obj, protocol=4)
-            file_obj.close()
-
-            ## generate pickled whole images
-            if numslices is not None:
-                objs_whole = []
-                uncerts_whole = []
-                for i in np.arange(0, len(initinterfeatimgs_for_refstage)):
-                    obj = '//data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,
-                                                                                                        epoch, i,
-                                                                                                        smallestidx,
-                                                                                                        subjs['train'][
-                                                                                                            i], suffix)
-                    objs_whole.append('{0}.{1}'.format(obj, ext))
-                    data0 = data_preproc_onestage.imagepatches(
-                        fname=initinterfeatimgs_for_refstage[i],
-                        mask=masks[i],
-                        label=labels[i],
-                        gm=2, wm=1, csf=3, num_classes=4, channels=numchannels,  # spherecoords=spherecoords[i],
-                        masklabel=True, pad=pad)
-                    file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-                    pickle.dump(data0, file_obj, protocol=4)
-                    file_obj.close()
-
-                    uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,
-                                                                                                smallestidx,
-                                                                                                subjs['train'][i],
-                                                                                                suffix)
-                    uncerts_whole.append('{0}.{1}'.format(uncert, ext))
-                    data0 = data_preproc_onestage.imagepatches(
-                        fname=uncertniis[i],
-                        mask=masks[i],
-                        label=labels[i],
-                        gm=2, wm=1, csf=3, num_classes=4, channels=3,
-                        masklabel=True, pad=pad, normalize=False)
-                    file_obj = open('{0}.{1}'.format(uncert, ext), 'wb')
-                    pickle.dump(data0, file_obj, protocol=4)
-                    file_obj.close()
-                valobjs_whole = []
-                valuncerts_whole = []
-                for i in np.arange(0, len(valinitinterfeatimgs_for_refstage)):
-                    obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,
-                                                                                                           epoch, i,
-                                                                                                           iterations,
-                                                                                                           subjs['val'][
-                                                                                                               i],
-                                                                                                           suffix)
-                    valobjs_whole.append('{0}.{1}'.format(obj, ext))
-                    data0 = data_preproc_noupsample.imagepatches(
-                        fname=valinitinterfeatimgs_for_refstage[i],
-                        mask=valmasks[i],
-                        label=vallabels[i],
-                        gm=2, wm=1, csf=3, num_classes=4, channels=numchannels,  # spherecoords=valspherecoords[i],
-                        masklabel=True, pad=pad, normalize=False)
-                    file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-                    pickle.dump(data0, file_obj, protocol=4)
-                    file_obj.close()
-
-                    uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,
-                                                                                                   i, iterations,
-                                                                                                   subjs['val'][i],
-                                                                                                   suffix)
-                    valuncerts_whole.append('{0}.{1}'.format(uncert, ext))
-                    data0 = data_preproc_noupsample.imagepatches(
-                        fname=valuncertniis[i],
-                        mask=valmasks[i],
-                        label=vallabels[i],
-                        gm=2, wm=1, csf=3, num_classes=4, channels=3,
-                        masklabel=True, pad=pad, normalize=False)
-                    file_obj = open('{0}.{1}'.format(uncert, ext), 'wb')
-                    pickle.dump(data0, file_obj, protocol=4)
-                    file_obj.close()
 
     ############################################################################################
     ############################################################################################
@@ -364,10 +253,8 @@ for ITER in np.arange(iterative):
                     numchannels,
                     epoch, i, 0,
                     subjs['val'][i], suffix)
-                valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valmodifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels,
-                                                                                                                 epoch, i, 0,
-                                                                                                                 subjs['val'][i],
-                                                                                                                 suffix)
+                valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valmodifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels,epoch, i, 0,
+                                                                                                                 subjs['val'][i],suffix)
                 valrefineinterfeatimgs.append(valrefineinterfeatimg)
                 valrefineoutputs.append(valrefineoutput)
 
@@ -379,29 +266,13 @@ for ITER in np.arange(iterative):
         for i,fn_mod_add in enumerate(fn_mod_adds):
             prefix = fn_mod_add.split('.')[0]
             obj = prefix.split('modified_imgs')[0] + 'objects' + prefix.split('modified_imgs')[1]
-            data0 = data_preproc_noupsample.imagepatches(
-                    fname=fn_mod_add,
-                    mask=masks[i],
-                    label=labels[i], spherecoords=spherecoords[0],
-                    gm=2, wm=1, csf=3, num_classes=4, #channels=numchannels,
-                    masklabel=True, pad=pad, normalize=False)
-            file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-            pickle.dump(data0, file_obj, protocol=4)
-            file_obj.close()
+            generate_obj_files.generate_obj_files(obj, fn_mod_add, masks[i], labels[i])
             fns.append(obj+'.obj')
         if validation:
             for i, val_fn_mod_add in enumerate(val_fn_mod_adds):
                 prefix = val_fn_mod_add.split('.')[0]
                 obj = prefix.split('modified_imgs')[0] + 'objects' + prefix.split('modified_imgs')[1]
-                data0 = data_preproc_noupsample.imagepatches(
-                    fname=val_fn_mod_add,
-                    mask=valmasks[i],
-                    label=vallabels[i], spherecoords=spherecoords[1],
-                    gm=2, wm=1, csf=3, num_classes=4,  channels=numchannels,
-                    masklabel=True, pad=pad, normalize=False)
-                file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-                pickle.dump(data0, file_obj, protocol=4)
-                file_obj.close()
+                generate_obj_files.generate_obj_files(obj, val_fn_mod_add, valmasks[i], vallabels[i])
                 valfns.append(obj+'.obj')
 
         torch.save(solver.modelWImg.state_dict(), '/data/infant/checkpoints/gen_e{0}_lr5e4_f{1}_checkpoint_modelWImg_{2}.pth'.format(epoch, numchannels,suffix))
@@ -429,8 +300,7 @@ for ITER in np.arange(iterative):
     refineoutputs = []
     for i in np.arange(len(objs)):
         refineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_refineinterfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
-                                                                                                             epoch, i, 0,
-                                                                                                                      subjs['train'][i],suffix)
+                                                                                                             epoch, i, 0, subjs['train'][i],suffix)
         refineoutput = '//data/infant/outputs/{4}_{0}ch_refineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
                                                                                                          subjs['train'][i],suffix)
         refineinterfeatimgs.append(refineinterfeatimg)
@@ -460,59 +330,35 @@ for ITER in np.arange(iterative):
     print(elapsed/60)
 
 
-## generate obj files for 3rd iteration - test
+    ############################################################################################
+    ############################################################################################
+    ### generate obj files
+    ############################################################################################
+    ############################################################################################
     objs=[]
     valobjs=[]
 
     for i in np.arange(0,len(refineinterfeatimgs)):
         fname = initinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-        obj = '/data/infant/objects/{0}.{1}'.format(refineinterfeatimgs[i].split('.')[0].split('/')[-1], ext)
+        obj = '/data/infant/objects/{0}.obj'.format(refineinterfeatimgs[i].split('.')[0].split('/')[-1])
         objs.append(obj)
-        data0 = data_preproc_onestage.imagepatches(
-            fname=refineinterfeatimgs[i],
-            mask=fname,
-            label=labels[i],
-            gm=2, wm=1, csf=3, num_classes=4, channels=numchannels, # spherecoords=spherecoords[i],
-            masklabel=True, pad=pad)
-        file_obj = open('{0}'.format(obj), 'wb')
-        pickle.dump(data0, file_obj, protocol=4)
-        file_obj.close()
+        generate_obj_files.generate_obj_files(obj, refineinterfeatimgs[i], fname, labels[i])
 
     if validation:
         for i in np.arange(0, len(valrefineinterfeatimgs)):
             fname = valinitinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-            obj = '/data/infant/objects/{0}.{1}'.format(valrefineinterfeatimgs[i].split('.')[0].split('/')[-1], ext)
+            obj = '/data/infant/objects/{0}.obj'.format(valrefineinterfeatimgs[i].split('.')[0].split('/')[-1])
             valobjs.append(obj)
-            data0 = data_preproc_onestage.imagepatches(
-                fname=valrefineinterfeatimgs[i],
-                mask=fname,
-                label=vallabels[i],
-                gm=2, wm=1, csf=3, num_classes=4, channels=numchannels, # spherecoords=valspherecoords[i],
-                masklabel=True, pad=pad, normalize=False)
-            file_obj = open('{0}'.format(obj), 'wb')
-            pickle.dump(data0, file_obj, protocol=4)
-            file_obj.close()
+            generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], fname, vallabels[i])
 
             ## generate pickled whole images
             if numslices is not None:
                 valobjs_whole = []
                 for i in np.arange(0, len(valrefineinterfeatimgs)):
-                    obj = '//data/infant/objects/{4}_{0}ch_valrefineinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,
-                                                                                                           epoch, i,
-                                                                                                           iterations,
-                                                                                                           subjs['val'][
-                                                                                                               i],
-                                                                                                           suffix)
-                    valobjs_whole.append('{0}.{1}'.format(obj, ext))
-                    data0 = data_preproc_noupsample.imagepatches(
-                        fname=valrefineinterfeatimgs[i],
-                        mask=valmasks[i],
-                        label=vallabels[i],
-                        gm=2, wm=1, csf=3, num_classes=4, channels=numchannels,  # spherecoords=valspherecoords[i],
-                        masklabel=True, pad=pad, normalize=False)
-                    file_obj = open('{0}.{1}'.format(obj, ext), 'wb')
-                    pickle.dump(data0, file_obj, protocol=4)
-                    file_obj.close()
+                    obj = '//data/infant/objects/{4}_{0}ch_valrefineinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,epoch, i,
+                                                                                                           iterations,subjs['val'][i],suffix)
+                    valobjs_whole.append('{0}.obj'.format(obj))
+                    generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], valmasks[i],vallabels[i])
 
     ############################################################################################
     ############################################################################################
@@ -566,6 +412,14 @@ for ITER in np.arange(iterative):
     ## time
     elapsed = time.time() - starttime
     print(elapsed/60)
+
+
+
+
+
+
+
+
 
 ## evaluate accuracy for # of slices
 from diceCoeff import diceCoeff

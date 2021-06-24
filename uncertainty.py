@@ -86,3 +86,30 @@ def render_uncert_imgs(fns, var, niis, subjs, numchannels, iterations, mean=None
             recon = nib.Nifti1Image(means, affine=niis[f])
             nib.save(recon, '/data/infant/variance/{0}_means_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
                                                                                                     iterations, f, suffix))
+
+def select_best_model(gm2wm, csf2wm, iterations, initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,
+                      valinitinterfeatimgs, validation=True):
+    maes = []
+    for j in np.arange(iterations):
+        mae = 0
+        for i in np.arange(len(initoutputs_alliterations)):
+            nii = nib.load(initoutputs_alliterations[j][i])
+            data = nii.get_fdata()
+            wm = np.sum(data == 1)
+            gm = np.sum(data == 2)
+            csf = np.sum(data == 3)
+            mae = (np.abs((gm / wm) - gm2wm) + np.abs((csf / wm) - csf2wm)) / 2
+            mae += mae
+            del data
+        maes.append(mae / len(initoutputs_alliterations))
+    smallestidx = np.argmin(maes)
+    print(initimodels[smallestidx])
+    initinterfeatimgs_for_refstage = initinterfeatimgs_alliterations[smallestidx][:-len(valinitinterfeatimgs)]
+    initoutputs_for_refstage = initoutputs_alliterations[smallestidx][:-len(valinitinterfeatimgs)]
+    if validation:
+        valinitinterfeatimgs_for_refstage = initinterfeatimgs_alliterations[smallestidx][-len(valinitinterfeatimgs):]
+        valinitoutputs_for_refstage = initoutputs_alliterations[smallestidx][-len(valinitinterfeatimgs):]
+        return initinterfeatimgs_for_refstage,initoutputs_for_refstage,\
+               valinitinterfeatimgs_for_refstage,valinitoutputs_for_refstage, smallestidx
+    else:
+        return initinterfeatimgs_for_refstage, initoutputs_for_refstage, smallestidx
