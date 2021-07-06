@@ -32,7 +32,7 @@ for subj in subjs:
 #### slices ####
 numslices = 10
 for subj in subjs:
-    pkl_file = '/data/infant/objects/{0}_N4_1mm.obj'.format(subj)
+    pkl_file = '/{0}/{1}{2}.obj'.format(save_dir,subj,suffix)
     file_obj = open(pkl_file, 'rb')
     dataset = pickle.load(file_obj)
     mean = dataset.mean

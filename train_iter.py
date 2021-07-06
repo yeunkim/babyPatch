@@ -11,7 +11,7 @@ import generate_obj_files
 
 ## hyperparameters
 numchannels = 4
-iterations = 2
+iterations = 5
 pad = 5
 validation=True
 iterative = 1
@@ -262,7 +262,7 @@ for ITER in np.arange(iterative):
     with open(textfn, 'w') as f:
         f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
     solver = run_two_stage_cnn_orig_truncatedloss.Solver(objs,  epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=1000, in_features=1, labels=3,
-                                      shuffle=True, channels=numchannels,coords=False, DL=False, pad=pad, softdiceloss=False,
+                                      shuffle=True, channels=numchannels,coords=False, DL=False, pad=pad, softdiceloss=False, textfn=textfn,
                                       uncertainty=True, uncertfn= uncerts, channels2=3, valobj=valobjs, valuncertfn=valuncerts, spherecoord=False
                                          )
     print('Starting second model training, iteration number {0}'.format(ITER + 1))
