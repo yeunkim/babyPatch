@@ -2,6 +2,7 @@ import nibabel as nib
 import numpy as np
 from normalization import normalize_mri
 from scipy import spatial
+import collections
 
 class imagepatches(object):
 
@@ -11,7 +12,7 @@ class imagepatches(object):
                  k_t1=2, k_t1_init=None, threedim=False, channels=None, coords=None,
                  origcoords = None, normalize=True, normfactors = None,
                  contlabel = None, spherecoords= None, setbounds = False, bounds=(),
-                 interval = 5, numslicex = 7, numslicey = 7, numslicez =7):
+                 interval = 5, numslicex = None, numslicey = None, numslicez =None):
 
         self.pad = pad
         if not coords is None:
@@ -188,11 +189,20 @@ class imagepatches(object):
         ravel = lambda x, y: (y[2] * y[1] * x[0]) + (y[2] * x[1]) + x[2]
 
         zs = self.zpos_end - self.zpos
-        zinterval = int(np.round(zs/self.numslicez))
+        if self.numslicez is None:
+            zinterval = 1
+        else:
+            zinterval = int(np.round(zs/self.numslicez))
         ys = self.ypos_end - self.ypos
-        yinterval = int(np.round(ys / self.numslicey))
+        if self.numslicey is None:
+            yinterval = 1
+        else:
+            yinterval = int(np.round(ys / self.numslicey))
         xs = self.xpos_end - self.xpos
-        xinterval = int(np.round(xs / self.numslicex))
+        if self.numslicex is None:
+            xinterval = 1
+        else:
+            xinterval = int(np.round(xs / self.numslicex))
 
         if self.channels == 1:
             self.data = np.expand_dims(self.data, axis=3)
@@ -535,6 +545,20 @@ class imagepatches(object):
         # self.zline = self.zline[0:nonzeros, :]
         if not self.coords is None:
             self.coordsvec = self.coordsvec[0:nonzeros]
+
+        sortidxs = np.argsort(self.indices)
+        b = self.indices[sortidxs]
+        y = [item for item, count in collections.Counter(self.indices).items() if count > 1]
+        if len(y) > 0:
+            idxs = np.where(np.isin(b, y))
+            c = idxs[0][idxs[0] % 2 == 1]
+
+            self.indices = np.delete(b,c)
+            self.neighbors = np.delete(self.neighbors[sortidxs],c, axis=0)
+            self.neighbors_z = np.delete(self.neighbors_z[sortidxs], c, axis=0)
+            self.neighbors_y = np.delete(self.neighbors_y[sortidxs], c, axis=0)
+            self.X5 = np.delete(self.X5[sortidxs], c)
+            self.X = np.delete(self.X[sortidxs], c)
 
         #
         if self.fname_t1:

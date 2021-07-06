@@ -15,7 +15,7 @@ mask_file_suffix = '-C-T1_T2w.1mm.cerebrum.mask.nii.gz'
 label_dir = '/data/infant/t2traindata_labels_handedit_YK_05072020'
 label_file_suffix = '-C-T1.T2w.final.label.nii.gz'
 save_dir = '/data/infant/objects/'
-suffix = "_N4_1mm.obj"
+suffix = "_N4_1mm"
 
 #### whole brain ####
 for subj in subjs:

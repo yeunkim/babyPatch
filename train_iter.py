@@ -11,7 +11,7 @@ import generate_obj_files
 
 ## hyperparameters
 numchannels = 4
-iterations = 5
+iterations = 2
 pad = 5
 validation=True
 iterative = 1
@@ -182,10 +182,10 @@ for ITER in np.arange(iterative):
             valobjs_whole = []
             valuncerts_whole = []
             obj = '//{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,
-                                                                                                         iterations,subjs['val'][i],suffix,objects_folder)
+                                                                                    smallestidx,subjs['val'][i],suffix,objects_folder)
             valobjs_whole.append('{0}.obj'.format(obj))
             generate_obj_files.generate_obj_files(obj, valinitinterfeatimgs_for_refstage[i], valmasks[i], vallabels[i])
-            uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,i, iterations,
+            uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,i, smallestidx,
                                                                                                  subjs['val'][i],suffix,objects_folder)
             valuncerts_whole.append('{0}.obj'.format(uncert))
             generate_obj_files.generate_obj_files(uncert, valuncertniis[i], valmasks[i], vallabels[i],numchannels=3)
