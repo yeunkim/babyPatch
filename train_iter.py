@@ -19,7 +19,7 @@ generator = False
 epoch = 2
 gm2wm = 0.91487 # ratio of number of voxels (gm to wm) [if skull stripping -> put brain:non-brain]
 csf2wm = 0.48580 # ratio of number of voxels (csf to wm) [0 if skull stripping]
-thirdmodel = True # False if running mousepatch
+third_model = True # False if running mousepatch
 
 ## set file names and folder paths
 subjs = {'val':[ '056'], #, '010','115'
@@ -51,6 +51,7 @@ valvar = []
 starttime = time.time()
 for ITER in np.arange(iterative):
     print('Starting iteration number {0}'.format(ITER+1))
+    # TODO: CHANGE SUFFIX ACCORDING TO RUN
     suffix = '2021_10slices_I' + str(ITER+1)
 
     ############################################################################################
