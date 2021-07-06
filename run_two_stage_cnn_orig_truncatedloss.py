@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+# import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
@@ -8,15 +8,13 @@ from torch.utils.data import DataLoader
 import MRDataSet2_noupsample
 import torch
 from torch.utils.data import ConcatDataset
-from sklearn.neighbors import BallTree, KDTree
+# from sklearn.neighbors import BallTree, KDTree
 from torch.nn import DataParallel
-import two_stage_cnn_dropout
 import two_stage_cnn_uncertainty
 import MRDataSet2_mult_dataset
 import nibabel as nib
 import itertools
 import classify_weightedImg
-import one_stage_cnn
 
 processes = []
 
@@ -73,15 +71,7 @@ class Solver(object):
         self.valuncertfn = valuncertfn
         self.spherecoord = spherecoord
 
-        if self.dropout:
-            self.model = two_stage_cnn_dropout.model_2input_mirrored(
-                f_dim=self.f_dim,
-                pad=self.pad,
-                in_features=self.in_features,
-                labels=self.labels,
-                params=self.params,
-                channels=self.channels)
-        elif self.uncertainty:
+        if self.uncertainty:
             self.model = two_stage_cnn_uncertainty.model_2input_mirrored(
                 f_dim=self.f_dim,
                 pad=self.pad,

@@ -1,28 +1,40 @@
 
-import pickle
 import nibabel as nib
 import time
 import numpy as np
-import data_preproc_noupsample
 import uncertainty
 import torch
 from datetime import datetime
 import run_classify_weightedImg
 import run_two_stage_cnn_orig_truncatedloss
-import data_preproc_onestage
 import generate_obj_files
 
+## hyperparameters
 numchannels = 4
 iterations = 2
 pad = 5
+validation=True
+iterative = 1
+generator = False
+epoch = 2
+gm2wm = 0.91487 # ratio of number of voxels (gm to wm) [if skull stripping -> put brain:non-brain]
+csf2wm = 0.48580 # ratio of number of voxels (csf to wm) [0 if skull stripping]
+thirdmodel = True # False if running mousepatch
 
+## set file names and folder paths
 subjs = {'val':[ '056'], #, '010','115'
-        'train':['072'] } #,,'087',,,'023' ,'132'
+        'train':['072'] } #,'087','023' ,'132'
 
-fns = ['/data/infant/objects/{0}_p5_10slices.obj'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
-fns_whole = ['/data/infant/objects/{0}_N4_1mm.obj'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
-valfns = ['/data/infant/objects/{0}_p5_10slices.obj'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
-valfns_whole = ['/data/infant/objects/{0}_N4_1mm.obj'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
+numslices = 10
+losses_folder = '/data/infant/losses/'
+checkpoints_folder = '/data/infant/checkpoints/'
+intermediate_folder = '/data/infant/intermediate_nii/'
+outputs_folder =  '/data/infant/outputs/'
+objects_folder = '/data/infant/objects/'
+fns = ['/{2}/{0}_p5_{1}slices.obj'.format(subjs['train'][i],numslices,objects_folder) for i in range(len(subjs['train']))]
+fns_whole = ['/{1}/{0}_N4_1mm.obj'.format(subjs['train'][i],objects_folder) for i in range(len(subjs['train']))]
+valfns = ['/{2}/{0}_p5_{1}slices.obj'.format(subjs['val'][i],numslices,objects_folder) for i in range(len(subjs['val']))]
+valfns_whole = ['/{1}/{0}_N4_1mm.obj'.format(subjs['val'][i],objects_folder) for i in range(len(subjs['val']))]
 masks = ['/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
 niis = [nib.load('/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['train'][i]))._affine for i in range(len(subjs['train']))]
 valmasks = ['/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
@@ -30,43 +42,16 @@ valniis = [nib.load('/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.n
 labels = ['/data/infant/t2traindata_labels_handedit_YK_05072020/{0}-C-T1.T2w.final.label.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
 vallabels = ['/data/infant/t2traindata_labels_handedit_YK_05072020/{0}-C-T1.T2w.final.label.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
 
-starttime = time.time()
-generator = False
-
-epoch = 2
-
-spherecoords=[]
-# subjs=[ '087-C-T1', '056-C-T1',  '002-C-T1', '072-C-T1', '108-C-T1']
-# for i in range(len(subjs)):
-#     fns.append('/data/infant/objects/{0}_T2w_p6_spherecoords_pruned.obj'.format(subjs[i]))
-#     valfns.append('/data/infant/objects/{0}_T2w_p6_spherecoords.obj'.format(subjs[i]))
-#     spherecoords.append(
-#         '/data/infant/spherecoords/atlas_Int_M6_T2_cartesian_new_coords_masked_{0}_xfmed_spherecoord2_filled.nii.gz'.format(subjs[i]))
-#     if subjs[i] != '072-C-T1':
-#         masks.append('/nafs/shattuck/yeunkim/infant_images/rebeccabelisle/{0}_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subjs[i]))
-#     else:
-#         masks.append('//oldmiro/data/SSD_data/infant/processed/train_data/{0}/{0}_T2w.1mm.N4.subcort.mask.nii.gz'.format('072'))
-#     labels.append('/data/infant/labels/{0}_T2w.label.nii.gz'.format(subjs[i]))
-#     if subjs[i] != '108-C-T1':
-#         niis.append(nib.load('/nafs/shattuck/yeunkim/infant_images/rebeccabelisle/{0}_T2w.1mm.N4.cerebrum.nii.gz'.format(subjs[i]))._affine)
-#     else:
-#         niis.append(nib.load('/data/infant/T2_2019/108-C-T1_T2w.1mm.N4.cerebrum.bfc.nii.gz')._affine)
-
-# valspherecoords=[]
-# valspherecoords.append('/data/infant/spherecoords/atlas_Int_M6_T2_cartesian_new_coords_masked_{0}_xfmed_spherecoord_filled.nii.gz'.format(valsubjs[0]))
-
 
 mean = []
 var = []
 valmean = []
 valvar = []
 
-validation=True
-iterative = 1
-
+starttime = time.time()
 for ITER in np.arange(iterative):
     print('Starting iteration number {0}'.format(ITER+1))
-    suffix = '2021_10slices' + str(ITER)
+    suffix = '2021_10slices_I' + str(ITER+1)
 
     ############################################################################################
     ############################################################################################
@@ -78,35 +63,33 @@ for ITER in np.arange(iterative):
     initimodels = []
     for ii in np.arange(iterations):
 
-        textfn = '/data/infant/losses/avglosses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'))
+        textfn = '/{1}/avglosses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),losses_folder)
         with open(textfn, 'w') as f:
             f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
         solver = run_two_stage_cnn_orig_truncatedloss.Solver(fns, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=5000,
-                                             in_features=1, labels=3, shuffle=True, pad=pad,
-                                             channels=1, textfn = textfn, suffix=suffix,
-                                                             valobj=valfns,spherecoord=False
-                                                             )
+                                             in_features=1, labels=3, shuffle=True, pad=pad, channels=1, textfn = textfn, suffix=suffix,
+                                                             valobj=valfns,spherecoord=False)
         print('Starting first model training, iteration number {0}, uncertainty iteration {1}'.format(ITER + 1, ii+1))
         solver.train()
 
         # solver.model.load_state_dict(torch.load(
-        #     '/data/infant/checkpoints/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels, int(epoch), 0,suffix)))
+        #     '/{4}/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),0,suffix),checkpoints_folder))
         # solver.train(epoch=epoch_ext)
         initinterfeatimgs = []
         initoutputs = []
         valinitinterfeatimgs = []
         valinitoutputs = []
         for i in np.arange(len(fns)):
-            initinterfeatimg = '//data/infant/intermediate_nii/{4}_{0}ch_initinterfeatimg_e{1}_i{3}_fn{2}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i], suffix)
-            initoutput = '//data/infant/intermediate_nii/{4}_{0}ch_initoutput_e{1}_i{3}_f{2}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i],suffix)
+            initinterfeatimg = '/{6}/{4}_{0}ch_initinterfeatimg_e{1}_i{3}_fn{2}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i], suffix,intermediate_folder)
+            initoutput = '/{6}/{4}_{0}ch_initoutput_e{1}_i{3}_f{2}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i],suffix,intermediate_folder)
             initinterfeatimgs.append(initinterfeatimg)
             initoutputs.append(initoutput)
         if validation:
             for i in np.arange(len(valfns)):
-                valinitinterfeatimg = '//data/infant/intermediate_nii/{4}_{0}ch_valinitinterfeatimg_e{1}_i{3}_fn{2}_{5}.nii.gz'.format(
-                    numchannels, epoch, i, ii, subjs['val'][i], suffix)
-                valinitoutput = '//data/infant/intermediate_nii/{4}_{0}ch_valinitoutput_e{1}_i{3}_f{2}_{5}.nii.gz'.format(
-                    numchannels, epoch, i, ii,subjs['val'][i], suffix)
+                valinitinterfeatimg = '/{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_i{3}_fn{2}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, ii, subjs['val'][i], suffix,intermediate_folder)
+                valinitoutput = '/{6}/{4}_{0}ch_valinitoutput_e{1}_i{3}_f{2}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, ii,subjs['val'][i], suffix,intermediate_folder)
                 valinitinterfeatimgs.append(valinitinterfeatimg)
                 valinitoutputs.append(valinitoutput)
             initinterfeatimgs_alliterations.append(initinterfeatimgs + valinitinterfeatimgs)
@@ -114,15 +97,13 @@ for ITER in np.arange(iterative):
         else:
             initinterfeatimgs_alliterations.append(initinterfeatimgs)
             initoutputs_alliterations.append(initoutputs)
-        initmodel = ('/data/infant/checkpoints/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels, int(epoch), ii,
-                                                                                         suffix))
+        initmodel = ('/{4}/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),ii,suffix,intermediate_folder))
         torch.save(solver.model.state_dict(), initmodel)
         initimodels.append(initmodel)
 
-
         label_OHE = solver.test(initinterfeatimgs, initoutputs, niis,batchsize=5000, imgs=fns_whole)
 
-        mean, var = uncertainty.compute_var_mean(label_OHE, mean, var, ii)
+        mean, var = uncertainty.compute_var_mean(label_OHE, mean, var, ii) # running calculation of mean and variance of the estimates
         if validation:
             label_OHE = solver.test(valinitinterfeatimgs, valinitoutputs, valniis, batchsize=5000, imgs=valfns_whole)
             valmean, valvar = uncertainty.compute_var_mean(label_OHE, valmean, valvar, ii)
@@ -143,12 +124,11 @@ for ITER in np.arange(iterative):
     del var, valvar, mean, valmean
 
     #### Choose which model/intermediate dataset
-    gm2wm = 0.91487
-    csf2wm = 0.48580
     initinterfeatimgs_for_refstage, initoutputs_for_refstage, \
     valinitinterfeatimgs_for_refstage, valinitoutputs_for_refstage, smallestidx = uncertainty.select_best_model(gm2wm, csf2wm, iterations,
                                                     initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,
                                                     valinitinterfeatimgs, validation=True)
+    print('First model finished. Generating pickled images, iteration number {0}'.format(ITER + 1))
 
     ############################################################################################
     ############################################################################################
@@ -157,60 +137,57 @@ for ITER in np.arange(iterative):
     ############################################################################################
     uncertniis = []
     valuncertniis = []
-    numslices = 10
     objs = []
     uncerts = []
     valobjs = []
     valuncerts = []
     for i in np.arange(len(fns)):
         uncertniis.append('/data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}_{4}.nii.gz'.format(subjs['train'][i], numchannels, iterations, i, suffix))
-        fname = generate_obj_files.generate_mask(initinterfeatimgs_for_refstage[i])
-        obj = '/data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
-                                                                                            subjs['train'][i], suffix)
+        fname = generate_obj_files.generate_mask(initinterfeatimgs_for_refstage[i].split('.')[0],fns[i])
+        obj = '/{6}/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
+                                                                                            subjs['train'][i], suffix,objects_folder)
         objs.append('{0}.obj'.format(obj))
         generate_obj_files.generate_obj_files(obj,initinterfeatimgs_for_refstage[i],fname,labels[i])
-        uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
-                                                                                    subjs['train'][i], suffix)
+        uncert = '//{6}/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
+                                                                                    subjs['train'][i], suffix,objects_folder)
         uncerts.append('{0}.obj'.format(uncert))
-        generate_obj_files.generate_obj_files(uncert, uncertniis[i], fname, labels[i])
+        generate_obj_files.generate_obj_files(uncert, uncertniis[i], fname, labels[i],numchannels=3)
         ## generate whole images
         objs_whole = []
         uncerts_whole = []
-        obj = '//data/infant/objects/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
-                                                                                                  subjs['train'][i],suffix)
+        obj = '//{6}/{4}_{0}ch_initinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
+                                                                                                  subjs['train'][i],suffix,objects_folder)
         objs_whole.append('{0}.obj'.format(obj))
         generate_obj_files.generate_obj_files(obj, initinterfeatimgs_for_refstage[i], masks[i], labels[i])
-        uncert = '//data/infant/objects/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
-                                                                                          subjs['train'][i],suffix)
+        uncert = '//{6}/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,smallestidx,
+                                                                                          subjs['train'][i],suffix,objects_folder)
         uncerts_whole.append('{0}.obj'.format(uncert))
-        generate_obj_files.generate_obj_files(uncert, uncertniis[i], masks[i], labels[i])
+        generate_obj_files.generate_obj_files(uncert, uncertniis[i], masks[i], labels[i],numchannels=3)
     if validation:
         for i in np.arange(len(valfns)):
             valuncertniis.append(
                 '//data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}_val{4}.nii.gz'.format(subjs['val'][i], numchannels, iterations, i,
                                                                                       suffix))
-            fname = generate_obj_files.generate_mask(valinitinterfeatimgs_for_refstage[i])
-            obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch,i, smallestidx,
-                                                                                                   subjs['val'][i], suffix)
+            fname = generate_obj_files.generate_mask(valinitinterfeatimgs_for_refstage[i].split('.')[0],valfns[i])
+            obj = '//{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}'.format(numchannels, epoch,i, smallestidx,
+                                                                                                   subjs['val'][i], suffix,objects_folder)
             valobjs.append('{0}.obj'.format(obj))
             generate_obj_files.generate_obj_files(obj, valinitinterfeatimgs_for_refstage[i], fname, vallabels[i])
-            uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i,smallestidx,
-                                                                                           subjs['val'][i], suffix)
+            uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i,smallestidx,
+                                                                                           subjs['val'][i], suffix,objects_folder)
             valuncerts.append('{0}.obj'.format(uncert))
-            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], fname, vallabels[i])
+            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], fname, vallabels[i],numchannels=3)
             ## generate whole images
             valobjs_whole = []
             valuncerts_whole = []
-            obj = '//data/infant/objects/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,
-                                                                                                         iterations,subjs['val'][i],suffix)
+            obj = '//{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels, epoch, i,
+                                                                                                         iterations,subjs['val'][i],suffix,objects_folder)
             valobjs_whole.append('{0}.obj'.format(obj))
             generate_obj_files.generate_obj_files(obj, valinitinterfeatimgs_for_refstage[i], valmasks[i], vallabels[i])
-            uncert = '//data/infant/objects/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,i, iterations,
-                                                                                                 subjs['val'][i],suffix)
+            uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}_whole'.format(numchannels, epoch,i, iterations,
+                                                                                                 subjs['val'][i],suffix,objects_folder)
             valuncerts_whole.append('{0}.obj'.format(uncert))
-            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], valmasks[i], vallabels[i])
-
-    print('First model finished. Generating pickled images, iteration number {0}'.format(ITER + 1))
+            generate_obj_files.generate_obj_files(uncert, valuncertniis[i], valmasks[i], vallabels[i],numchannels=3)
 
 
     ############################################################################################
@@ -219,7 +196,7 @@ for ITER in np.arange(iterative):
     ############################################################################################
     ############################################################################################
     if generator:
-        textfn = '/data/infant/losses/avglosses_generator_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'))
+        textfn = '/{1}/generator_train_losses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),losses_folder)
         with open(textfn, 'w') as f:
             f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
         solver = run_classify_weightedImg.Solver(fns, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=5000,
@@ -230,16 +207,15 @@ for ITER in np.arange(iterative):
         solver.train()
 
         # solver.model.load_state_dict(torch.load(
-        #    '/mnt/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint3.pth'.format(epoch2, numchannels, iterations)))
+        #    '/{3}/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint3.pth'.format(epoch2, numchannels, iterations,checkpoints_folder)))
 
         refineinterfeatimgs =[]
         refineoutputs = []
         for i in np.arange(len(objs)):
-            refineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_modifiedinterfeatimg_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
-                                                                                                                 epoch, i, 0,
-                                                                                                                          subjs['train'][i],suffix)
-            refineoutput = '//data/infant/outputs/{4}_{0}ch_modifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
-                                                                                                             subjs['train'][i],suffix)
+            refineinterfeatimg = '/{6}/{4}_{0}ch_modifiedinterfeatimg_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
+                                                                                                                 epoch, i, 0, subjs['train'][i],suffix,outputs_folder)
+            refineoutput = '/{6}/{4}_{0}ch_modifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
+                                                                                                             subjs['train'][i],suffix,outputs_folder)
             refineinterfeatimgs.append(refineinterfeatimg)
             refineoutputs.append(refineoutput)
 
@@ -249,12 +225,10 @@ for ITER in np.arange(iterative):
             valrefineinterfeatimgs = []
             valrefineoutputs = []
             for i in np.arange(len(valobjs)):
-                valrefineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_valmodifiedinterfeatimg_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
-                    numchannels,
-                    epoch, i, 0,
-                    subjs['val'][i], suffix)
-                valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valmodifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels,epoch, i, 0,
-                                                                                                                 subjs['val'][i],suffix)
+                valrefineinterfeatimg = '/{6}/{4}_{0}ch_valmodifiedinterfeatimg_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
+                    numchannels,epoch, i, 0, subjs['val'][i], suffix,outputs_folder)
+                valrefineoutput = '/{6}/{4}_{0}ch_valmodifiedoutput_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels,epoch, i, 0,
+                                                                                                                 subjs['val'][i],suffix,outputs_folder)
                 valrefineinterfeatimgs.append(valrefineinterfeatimg)
                 valrefineoutputs.append(valrefineoutput)
 
@@ -282,7 +256,7 @@ for ITER in np.arange(iterative):
     ### train the 2nd stage model
     ############################################################################################
     ############################################################################################
-    textfn = '/data/infant/losses/avglosses_ref_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'))
+    textfn = '/{1}/secondmodel_train_losses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),losses_folder)
 
     with open(textfn, 'w') as f:
         f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
@@ -293,16 +267,16 @@ for ITER in np.arange(iterative):
     print('Starting second model training, iteration number {0}'.format(ITER + 1))
     solver.train()
     # solver.model.load_state_dict(torch.load(
-    #     '/mnt/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint3.pth'.format(epoch, numchannels, iterations)))
-    torch.save(solver.model.state_dict(), '/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix))
+    #     '/{3}/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint3.pth'.format(epoch, numchannels, iterations,checkpoints_folder)))
+    torch.save(solver.model.state_dict(), '/{3}/ref_e{0}_lr5e4_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix,checkpoints_folder))
 
     refineinterfeatimgs =[]
     refineoutputs = []
     for i in np.arange(len(objs)):
-        refineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_refineinterfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
-                                                                                                             epoch, i, 0, subjs['train'][i],suffix)
-        refineoutput = '//data/infant/outputs/{4}_{0}ch_refineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
-                                                                                                         subjs['train'][i],suffix)
+        refineinterfeatimg = '/{6}/{4}_{0}ch_refineinterfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
+                                                                                                             epoch, i, 0, subjs['train'][i],suffix,outputs_folder)
+        refineoutput = '/{6}/{4}_{0}ch_refineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
+                                                                                                         subjs['train'][i],suffix,outputs_folder)
         refineinterfeatimgs.append(refineinterfeatimg)
         refineoutputs.append(refineoutput)
 
@@ -313,195 +287,96 @@ for ITER in np.arange(iterative):
         valrefineinterfeatimgs = []
         valrefineoutputs = []
         for i in np.arange(len(valobjs)):
-            valrefineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_valrefineinterfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
-                numchannels,
-                epoch, i, 0,
-                subjs['val'][i], suffix)
-            valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valrefineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
-                numchannels, epoch, i, 0,
-                subjs['val'][i], suffix)
+            valrefineinterfeatimg = '/{6}/{4}_{0}ch_valrefineinterfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
+                numchannels, epoch, i, 0,subjs['val'][i], suffix,outputs_folder)
+            valrefineoutput = '/{6}/{4}_{0}ch_valrefineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
+                numchannels, epoch, i, 0,subjs['val'][i], suffix,outputs_folder)
             valrefineinterfeatimgs.append(valrefineinterfeatimg)
             valrefineoutputs.append(valrefineoutput)
 
-        label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, niis, batchsize=1000, imgs=valobjs_whole, uncertfn=valuncerts_whole)
+        label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, valniis, batchsize=1000, imgs=valobjs_whole, uncertfn=valuncerts_whole)
 
     ## time
     elapsed = time.time() - starttime
     print(elapsed/60)
 
+    if third_model:
+        ############################################################################################
+        ############################################################################################
+        ### generate obj files
+        ############################################################################################
+        ############################################################################################
+        objs=[]
+        valobjs=[]
 
-    ############################################################################################
-    ############################################################################################
-    ### generate obj files
-    ############################################################################################
-    ############################################################################################
-    objs=[]
-    valobjs=[]
+        for i in np.arange(0,len(refineinterfeatimgs)):
+            fname = initinterfeatimgs_for_refstage[i].split('.')[0] + '.mask.nii.gz'
+            obj = '/{1}/{0}'.format(refineinterfeatimgs[i].split('.')[0].split('/')[-1],objects_folder)
+            objs.append('{0}.obj'.format(obj))
+            generate_obj_files.generate_obj_files(obj, refineinterfeatimgs[i], fname, labels[i])
 
-    for i in np.arange(0,len(refineinterfeatimgs)):
-        fname = initinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-        obj = '/data/infant/objects/{0}.obj'.format(refineinterfeatimgs[i].split('.')[0].split('/')[-1])
-        objs.append(obj)
-        generate_obj_files.generate_obj_files(obj, refineinterfeatimgs[i], fname, labels[i])
+        if validation:
+            for i in np.arange(0, len(valrefineinterfeatimgs)):
+                fname = valinitinterfeatimgs_for_refstage[i].split('.')[0] + '.mask.nii.gz'
+                obj = '/{1}/{0}'.format(valrefineinterfeatimgs[i].split('.')[0].split('/')[-1],objects_folder)
+                valobjs.append('{0}.obj'.format(obj))
+                generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], fname, vallabels[i])
 
-    if validation:
-        for i in np.arange(0, len(valrefineinterfeatimgs)):
-            fname = valinitinterfeatimgs_for_refstage[i].split('.')[0] + '_mask.nii.gz'
-            obj = '/data/infant/objects/{0}.obj'.format(valrefineinterfeatimgs[i].split('.')[0].split('/')[-1])
-            valobjs.append(obj)
-            generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], fname, vallabels[i])
+                ## generate pickled whole images
+                if numslices is not None:
+                    valobjs_whole = []
+                    for i in np.arange(0, len(valrefineinterfeatimgs)):
+                        obj = '//{6}/{4}_{0}ch_valrefineinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,epoch, i,
+                                                                                                               iterations,subjs['val'][i],suffix,objects_folder)
+                        valobjs_whole.append('{0}.obj'.format(obj))
+                        generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], valmasks[i],vallabels[i])
 
-            ## generate pickled whole images
-            if numslices is not None:
-                valobjs_whole = []
-                for i in np.arange(0, len(valrefineinterfeatimgs)):
-                    obj = '//data/infant/objects/{4}_{0}ch_valrefineinterfeatimg_e{1}_fn{2}_i{3}_{5}_whole'.format(numchannels,epoch, i,
-                                                                                                           iterations,subjs['val'][i],suffix)
-                    valobjs_whole.append('{0}.obj'.format(obj))
-                    generate_obj_files.generate_obj_files(obj, valrefineinterfeatimgs[i], valmasks[i],vallabels[i])
+        ############################################################################################
+        ############################################################################################
+        ### train the 3rd stage model
+        ############################################################################################
+        ############################################################################################
+        textfn = '/{1}/thirdmodel_train_losses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),checkpoints_folder)
 
-    ############################################################################################
-    ############################################################################################
-    ### train the 3rd stage model
-    ############################################################################################
-    ############################################################################################
-    textfn = '/data/infant/losses/avglosses_ref_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'))
+        with open(textfn, 'w') as f:
+            f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
+        solver = run_two_stage_cnn_orig_truncatedloss.Solver(objs,  epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=1000, in_features=1, labels=3,
+                                          shuffle=True, channels=numchannels,coords=False, DL=False, pad=pad, softdiceloss=False,
+                                          uncertainty=False, valobj=valobjs, spherecoord=False
+                                             )
+        print('Starting third model training, iteration number {0}'.format(ITER + 1))
+        solver.train()
+        # solver.model.load_state_dict(torch.load(
+        #     '/{3}/thirdstage_e{0}_lr5e4_f{1}_i{2}_checkpoint.pth'.format(epoch, numchannels, iterations,checkpoints_folder)))
+        torch.save(solver.model.state_dict(), '/{3}/thirdstage_e{0}_lr5e4_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix,checkpoints_folder))
 
-    with open(textfn, 'w') as f:
-        f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
-    solver = run_two_stage_cnn_orig_truncatedloss.Solver(objs,  epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=1000, in_features=1, labels=3,
-                                      shuffle=True, channels=numchannels,coords=False, DL=False, pad=pad, softdiceloss=False,
-                                      uncertainty=False, valobj=valobjs, spherecoord=False
-                                         )
-    print('Starting third model training, iteration number {0}'.format(ITER + 1))
-    solver.train()
-    # solver.model.load_state_dict(torch.load(
-    #     '/mnt/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint3.pth'.format(epoch, numchannels, iterations)))
-    torch.save(solver.model.state_dict(), '/data/infant/checkpoints/ref2_e{0}_lr5e4_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix))
+        refineinterfeatimgs =[]
+        refineoutputs = []
+        for i in np.arange(len(objs)):
+            refineinterfeatimg = '/{6}/{4}_{0}ch_refine2interfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
+                                                                                                                 epoch,i,0,subjs['train'][i],suffix,outputs_folder)
+            refineoutput = '/{6}/{4}_{0}ch_refine2output_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
+                                                                                                             subjs['train'][i],suffix,outputs_folder)
+            refineinterfeatimgs.append(refineinterfeatimg)
+            refineoutputs.append(refineoutput)
 
-    refineinterfeatimgs =[]
-    refineoutputs = []
-    for i in np.arange(len(objs)):
-        refineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_refine2interfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(numchannels,
-                                                                                                             epoch, i, 0,
-                                                                                                                      subjs['train'][i],suffix)
-        refineoutput = '//data/infant/outputs/{4}_{0}ch_refine2output_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, 0,
-                                                                                                         subjs['train'][i],suffix)
-        refineinterfeatimgs.append(refineinterfeatimg)
-        refineoutputs.append(refineoutput)
+        label_OHE = solver.test(refineinterfeatimgs, refineoutputs, niis, batchsize=1000)
+        del label_OHE
 
-    label_OHE = solver.test(refineinterfeatimgs, refineoutputs, niis, batchsize=1000)
-    del label_OHE
+        if validation:
+            valrefineinterfeatimgs = []
+            valrefineoutputs = []
+            for i in np.arange(len(valobjs)):
+                valrefineinterfeatimg = '/{6}/{4}_{0}ch_valrefine2interfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, 0, subjs['val'][i], suffix,outputs_folder)
+                valrefineoutput = '/{6}/{4}_{0}ch_valrefine2output_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, 0,subjs['val'][i], suffix,outputs_folder)
+                valrefineinterfeatimgs.append(valrefineinterfeatimg)
+                valrefineoutputs.append(valrefineoutput)
 
-    if validation:
-        valrefineinterfeatimgs = []
-        valrefineoutputs = []
-        for i in np.arange(len(valobjs)):
-            valrefineinterfeatimg = '//data/infant/outputs/{4}_{0}ch_valrefine2interfeatimg_added_e{1}_fn{2}_i{3}_{5}.nii.gz'.format(
-                numchannels,
-                epoch, i, 0,
-                subjs['val'][i], suffix)
-            valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valrefine2output_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
-                numchannels, epoch, i, 0,
-                subjs['val'][i], suffix)
-            valrefineinterfeatimgs.append(valrefineinterfeatimg)
-            valrefineoutputs.append(valrefineoutput)
+            label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, valniis, batchsize=1000, imgs=valobjs_whole)
 
-        label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, niis, batchsize=1000, imgs=valobjs_whole)
+        ## time
+        elapsed = time.time() - starttime
+        print(elapsed/60)
 
-    ## time
-    elapsed = time.time() - starttime
-    print(elapsed/60)
-
-
-
-
-
-
-
-
-
-## evaluate accuracy for # of slices
-from diceCoeff import diceCoeff
-slices = [15, 20,25]
-
-# print('First model results:')
-# for ss in slices:
-#     print('{0} slices.'.format(ss))
-#     for id in range(0,len(subjs['train'])):
-#         print("Train data:")
-#         nii = nib.load(initoutputs_for_refstage[id])
-#         gt = nib.load(labels[id])
-#         mask = nib.load(masks[id])
-#         data = nii.get_fdata(nii)
-#         datagt = nii.get_fdata(gt)
-#         datamask = nii.get_fdata(mask)
-#         data[datamask ==0] =0
-#         datagt[datamask == 0] = 0
-#         print(initoutputs_for_refstage[id])
-#         dc_wm = diceCoeff(data, datagt, 1)
-#         dc_gm = diceCoeff(data, datagt, 2)
-#         dc_csf = diceCoeff(data, datagt, 3)
-#         print("wm: {0}  gm: {1}  csf: {2}  ".format(dc_wm, dc_gm, dc_csf))
-#     for id in range(0,len(subjs['val'])):
-#         print("Validation data:")
-#         nii = nib.load(valinitoutputs_for_refstage[id])
-#         gt = nib.load(vallabels[id])
-#         mask = nib.load(valmasks[id])
-#         data = nii.get_fdata(nii)
-#         datagt = nii.get_fdata(gt)
-#         datamask = nii.get_fdata(mask)
-#         data[datamask ==0] =0
-#         datagt[datamask == 0] = 0
-#         print(valinitoutputs_for_refstage[id])
-#         dc_wm = diceCoeff(data, datagt, 1)
-#         dc_gm = diceCoeff(data, datagt, 2)
-#         dc_csf = diceCoeff(data, datagt, 3)
-#         print("wm: {0}  gm: {1}  csf: {2}  ".format(dc_wm, dc_gm, dc_csf))
-
-print('Second model results:')
-for ss in slices:
-    print('{0} slices.'.format(ss))
-    suffix = '2021_{0}slices'.format(ss) + str(0)
-    refineoutputs = []
-    for i in np.arange(3):
-        refineoutput = '//data/infant/outputs/{4}_{0}ch_refineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
-            numchannels, epoch, i, 0,
-            subjs['train'][i], suffix)
-        refineoutputs.append(refineoutput)
-    valrefineoutputs = []
-    for i in np.arange(3):
-        valrefineoutput = '//data/infant/outputs/{4}_{0}ch_valrefineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
-            numchannels, epoch, i, 0,
-            subjs['val'][i], suffix)
-        valrefineoutputs.append(valrefineoutput)
-    # for id in range(0,len(subjs['train'])):
-    #     print("Train data:")
-    #     nii = nib.load(refineoutputs[id])
-    #     gt = nib.load(labels[id])
-    #     mask = nib.load(masks[id])
-    #     data = nii.get_fdata()
-    #     datagt = gt.get_fdata()
-    #     datamask = mask.get_fdata()
-    #     data[datamask ==0] =0
-    #     datagt[datamask == 0] = 0
-    #     print(refineoutputs[id])
-    #     dc_wm = diceCoeff(data, datagt, 1)
-    #     dc_gm = diceCoeff(data, datagt, 2)
-    #     dc_csf = diceCoeff(data, datagt, 3)
-    #     print("wm: {0}  gm: {1}  csf: {2}  ".format(dc_wm, dc_gm, dc_csf))
-    for id in range(0,len(subjs['val'])):
-        print("Validation data:")
-        nii = nib.load(valrefineoutputs[id])
-        gt = nib.load(vallabels[id])
-        mask = nib.load(valmasks[id])
-        data = nii.get_fdata()
-        datagt = gt.get_fdata()
-        datamask = mask.get_fdata()
-        data[datamask ==0] =0
-        datagt[datamask == 0] = 0
-        print(valrefineoutputs[id])
-        dc_wm = diceCoeff(data, datagt, 1)
-        dc_gm = diceCoeff(data, datagt, 2)
-        dc_csf = diceCoeff(data, datagt, 3)
-        print("wm: {0}  gm: {1}  csf: {2}  ".format(dc_wm, dc_gm, dc_csf))
