@@ -30,7 +30,7 @@ for subj in subjs:
     file_obj.close()
 
 #### slices ####
-numslices = 10
+numslices = 25
 for subj in subjs:
     pkl_file = '/{0}/{1}{2}.obj'.format(save_dir,subj,suffix)
     file_obj = open(pkl_file, 'rb')
@@ -44,6 +44,6 @@ for subj in subjs:
         label='{0}/{1}{2}'.format(label_dir,subj,label_file_suffix),
         gm=2, wm=1, csf=3, num_classes=3, pad=5, normfactors= (mean, std), ### always use to have the same mean and standard deviation!!
         masklabel=True, numslicex=numslices, numslicey=numslices, numslicez=numslices)
-    file_obj = open('{0}/{1}{2}{3}slices.obj'.format(save_dir,subj,suffix, numslices), 'wb')
+    file_obj = open('{0}/{1}_p5_{2}slices.obj'.format(save_dir,subj,numslices), 'wb')
     pickle.dump(data0, file_obj, protocol=4)
     file_obj.close()
