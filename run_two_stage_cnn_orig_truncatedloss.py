@@ -37,7 +37,7 @@ class Solver(object):
                  miscidx_val=None, params = None, channels=1, coords=False, DL=False, testobjs=None,
                  width=3, softdiceloss = False, dropout=False, uncertainty = False, uncertfn = None,
                  channels2 = 3, iterative=False, textfn='/data/avgloss.txt', initmodel=None, initWImgmodel=None,
-                 start_prune = 2, suffix = '', spherecoord=False):
+                 start_prune = 2, suffix = '', spherecoord=False, lossThresh = 0):
         self.obj = obj
         self.valobj = valobj
         self.miscidx=miscidx
@@ -70,6 +70,7 @@ class Solver(object):
         self.suffix = suffix
         self.valuncertfn = valuncertfn
         self.spherecoord = spherecoord
+        self.lossThresh = lossThresh
 
         if self.uncertainty:
             self.model = two_stage_cnn_uncertainty.model_2input_mirrored(
@@ -291,7 +292,7 @@ class Solver(object):
                             f.write("{0}\t{1}\n".format(label_losses_cat, label_losses_mod_cat))
 
                 if e ==2 and not self.uncertainty:
-                    if label_losses_cat > 0:
+                    if label_losses_cat > self.lossThresh:
                         restart = True
                         self.reset_model()
                         break
@@ -394,6 +395,7 @@ class Solver(object):
         else:
             datanum = len(self.obj)
 
+
         for d in np.arange(datanum):
             self.xhats = []
             self.maxindxs = []
@@ -406,34 +408,29 @@ class Solver(object):
                 origindices = self.data[d].dataset.indices
             elif imgs is not None:
                 if not self.uncertainty:
-                    data = []
-                    for i in np.arange(datanum):
-                        tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=imgs[i],
-                                                                  transform=transforms.Compose([
-                                                                      MRDataSet2_noupsample.ToTensor(
-                                                                          coords=self.coords,
-                                                                          spherecoord=self.spherecoord)
-                                                                  ]), miscidxs=self.miscidx,
-                                                                  spherecoord=self.spherecoord,
-                                                                  coords=self.coords)
-                        data.append(tmpdata)
+                    data = MRDataSet2_noupsample.MRDataSet(pkl_file=imgs[d],
+                                                              transform=transforms.Compose([
+                                                                  MRDataSet2_noupsample.ToTensor(
+                                                                      coords=self.coords,
+                                                                      spherecoord=self.spherecoord)
+                                                              ]), miscidxs=self.miscidx,
+                                                              spherecoord=self.spherecoord,
+                                                              coords=self.coords)
+                    # data.append(tmpdata)
 
                 elif self.uncertainty:
-                    data = []
-                    for i in np.arange(datanum):
-                        tmpdata = MRDataSet2_mult_dataset.MRDataSet(pkl_file=imgs[i], pkl_file2=uncertfn[i],
-                                                                    transform=transforms.Compose([
-                                                                        MRDataSet2_mult_dataset.ToTensor(
-                                                                            coords=self.coords,
-                                                                            spherecoord=self.spherecoord)
-                                                                    ]), miscidxs=self.miscidx,
-                                                                    spherecoord=self.spherecoord,coords=self.coords)
-                        data.append(tmpdata)
-                del tmpdata
-                ind_dataloader = DataLoader(data[d], batch_size=batchsize, shuffle=False,
+                    data = MRDataSet2_mult_dataset.MRDataSet(pkl_file=imgs[d], pkl_file2=uncertfn[d],
+                                                                transform=transforms.Compose([
+                                                                    MRDataSet2_mult_dataset.ToTensor(
+                                                                        coords=self.coords,
+                                                                        spherecoord=self.spherecoord)
+                                                                ]), miscidxs=self.miscidx,
+                                                                spherecoord=self.spherecoord, coords=self.coords)
+                ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
                                             num_workers=6, drop_last=False)
-                size = data[d].dataset.dataOrigShape[:3]
-                origindices = data[d].dataset.indices
+                size = data.dataset.dataOrigShape[:3]
+                origindices = data.dataset.indices
+                del data
 
             elif dataloader is not None:
                 ind_dataloader = dataloader
@@ -476,34 +473,53 @@ class Solver(object):
                 self.xhats.append(xhat.detach())
                 self.maxindxs.append(maxindx.detach().data)
 
+            del ind_dataloader
+
             labeled = torch.cat(label_OHEs, 0)
+            del label_OHEs
             labeled = labeled.data.cpu().numpy()
             maxindices = torch.cat(self.maxindxs, 0).cpu().numpy()
+            del self.maxindxs
 
-            X = np.zeros(size)
-            b = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
-            values = np.zeros([b.shape[0], self.f_dim])
-            for B in np.arange(len(b)):
-                values[B] = b[B].data.cpu().numpy()
+
+            self.xhats = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
+            values = np.zeros([self.xhats.shape[0], self.f_dim])
+            for B in np.arange(len(self.xhats)):
+                values[B] = self.xhats[B].data.cpu().numpy()
+            del self.xhats
 
             size4d = size + (self.f_dim,)
-            Y = np.zeros(size4d)
             size3d = size + (self.labels,)
-            L = np.zeros(size3d)
 
+            Y = np.zeros(size4d)
+            for idx in np.arange(maxindices.shape[0]):
+                idxs = np.unravel_index(origindices[idx], size)
+                Y[idxs] = values[idx]
+            recon = nib.Nifti1Image(Y, affine=affine[d])
+            del Y, values
+            nib.save(recon, filename=intimgname[d])
+            del recon
+
+            X = np.zeros(size)
             for idx in np.arange(maxindices.shape[0]):
                 idxs = np.unravel_index(origindices[idx], size)
                 X[idxs] = maxindices[idx] + 1
-                Y[idxs] = values[idx]
+            recon = nib.Nifti1Image(X.astype(np.int16), affine=affine[d])
+            recon.header.set_data_dtype(np.int16)
+            del X
+
+            nib.save(recon, filename=intoutname[d])
+            del recon
+
+            L = np.zeros(size3d)
+            for idx in np.arange(maxindices.shape[0]):
+                idxs = np.unravel_index(origindices[idx], size)
                 L[idxs] = labeled[idx]
 
-            recon = nib.Nifti1Image(Y, affine=affine[d])
-            nib.save(recon, filename=intimgname[d])
-
-            recon = nib.Nifti1Image(X, affine=affine[d])
-            nib.save(recon, filename=intoutname[d])
-
             labeled_list.append(L.reshape(np.prod(size3d[:3]), 3))
+
+            del L
+            del orig_indices
 
         return labeled_list
 
