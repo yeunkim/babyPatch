@@ -1,8 +1,10 @@
 import nibabel as nib
 import numpy as np
-from normalization import normalize_mri
+from preprocess.normalization import normalize_mri
 from scipy import spatial
 import collections
+import h5py
+import pickle
 
 class imagepatches(object):
 
@@ -12,7 +14,8 @@ class imagepatches(object):
                  k_t1=2, k_t1_init=None, threedim=False, channels=None, coords=None,
                  origcoords = None, normalize=True, normfactors = None,
                  contlabel = None, spherecoords= None, setbounds = False, bounds=(),
-                 interval = 5, numslicex = None, numslicey = None, numslicez =None):
+                 interval = 5, numslicex = None, numslicey = None, numslicez =None,
+                 fnoutput=None, dataNum = 0, pkl = True, singleslice = False, edgemap = None):
 
         self.pad = pad
         if not coords is None:
@@ -29,6 +32,15 @@ class imagepatches(object):
         self.fname_t1 = fname_t1
         self.fname_mask = mask
         self.spherecoords = spherecoords
+
+        self.dataNum = dataNum
+        self.singleslice = singleslice
+        self.fnoutput = fnoutput
+        self.pkl = pkl
+        self.edgemap = edgemap
+        if edgemap:
+            self.edgemap = nib.load(edgemap).get_fdata()
+            self.edgemap[self.edgemap > 0] = 1
 
         if normfactors:
             self.normfactors = normfactors
@@ -106,6 +118,10 @@ class imagepatches(object):
                 self.normalize()
             self.render_patches_slice()
             self.create_data_struct()
+        elif self.fnoutput:
+            if self.norm:
+                self.normalize()
+            self.render_data_struct()
         elif channels:
             self.channels = channels
             self.render_patches_channels()
@@ -144,32 +160,32 @@ class imagepatches(object):
     ## get bounds
     def get_bounds(self):
         for i in range(self.mask.shape[0]):
-            if np.sum(self.mask[i, :,:]) > 0:
+            if np.sum(self.mask[i, :,:]) != 0:
                 self.xpos = i
                 break
 
         for i in range(self.mask.shape[0]-1, 0, -1):
-            if np.sum(self.mask[i, :,:]) > 0:
+            if np.sum(self.mask[i, :,:]) != 0:
                 self.xpos_end = i+1
                 break
 
         for i in range(self.mask.shape[1]):
-            if np.sum(self.mask[:, i,:]) > 0:
+            if np.sum(self.mask[:, i,:]) != 0:
                 self.ypos = i
                 break
 
         for i in range(self.mask.shape[1]-1, 0, -1):
-            if np.sum(self.mask[:, i,:]) > 0:
+            if np.sum(self.mask[:, i,:]) != 0:
                 self.ypos_end = i+1
                 break
 
         for i in range(self.mask.shape[2]):
-            if np.sum(self.mask[:, :,i]) > 0:
+            if np.sum(self.mask[:, :,i]) != 0:
                 self.zpos = i
                 break
 
         for i in range(self.mask.shape[2]-1, 0, -1):
-            if np.sum(self.mask[:, :,i]) > 0:
+            if np.sum(self.mask[:, :,i]) != 0:
                 self.zpos_end = i+1
                 break
 
@@ -559,7 +575,6 @@ class imagepatches(object):
             self.neighbors_y = np.delete(self.neighbors_y[sortidxs], c, axis=0)
             self.X5 = np.delete(self.X5[sortidxs], c)
             self.X = np.delete(self.X[sortidxs], c)
-
         #
         if self.fname_t1:
             self.neighbors_t1 = self.neighbors_t1[0:nonzeros]
@@ -592,3 +607,132 @@ class imagepatches(object):
         del self.mask
         if self.fname_t1:
             del self.data_t1
+
+    def render_data_struct(self):
+        ### test
+        # nonzeros = np.count_nonzero(self.X)
+
+        xpos = self.xpos - self.pad
+        xposend = self.xpos_end + self.pad
+        ypos = self.ypos - (self.pad )
+        yposend = self.ypos_end + self.pad
+        zpos = self.zpos - (self.pad )
+        zposend = self.zpos_end + self.pad
+
+        self.roimask = self.mask[xpos:xposend, ypos:yposend, zpos:zposend]
+        tmpmask = self.mask[xpos:xposend, ypos:yposend, zpos:zposend]  # segment out the mask with the boundaries
+        tmplabel = self.label[xpos:xposend, ypos:yposend, zpos:zposend]  # segment out label
+
+        if self.masklabel:
+            self.indices = np.where((self.mask.ravel() > 0) & (self.label.ravel() != 4))[0]
+            self.roicropped_indices = np.where((self.roimask.ravel() > 0) & (tmplabel.ravel() != 4))[0]
+        else:
+            self.indices = np.where(self.mask.ravel() >0)[0]
+            self.roicropped_indices = np.where(self.roimask.ravel() > 0)[0]
+
+        self.mask = np.zeros_like(self.mask)
+        self.mask[xpos:xposend, ypos:yposend, zpos:zposend] = 1
+
+
+        origmask = self.mask[self.xpos:self.xpos_end, self.ypos:self.ypos_end, self.zpos:self.zpos_end]
+        origlabel = self.mask[self.xpos:self.xpos_end, self.ypos:self.ypos_end, self.zpos:self.zpos_end]
+
+        if self.masklabel:
+            '''get the indices relative to the bounded area only in the areas where it is masked and labeled'''
+            self.cropped_indices = np.where((tmpmask.ravel() > 0) & (tmplabel.ravel() != 4))[0]
+            ''' get indices in the non-padded areas'''
+            self.cropped_indices_nopad = np.where((origmask.ravel() > 0) & (origlabel.ravel() != 4))[0]
+        else:
+            self.cropped_indices  = np.where(tmpmask.ravel() >0)[0]
+            self.cropped_indices_nopad = np.where((origmask.ravel() > 0))[0]
+
+        '''get the mapping according to the 1D version of the cropped indices so that the
+        we can select the indices to move to in the training dataset (the cropped indices are
+        relative to the cropped region, whereas the this will return a -1 in places where the 
+        mask does not cover. It will also return the index relative to just the masked region.'''
+        cropped_size = np.prod(self.data[xpos:xposend, ypos:yposend, zpos:zposend].shape[:3])
+        # self.cropped_indices_map = np.zeros_like(cropped_size)
+        # self.cropped_indices_map.fill(-1)
+        self.cropped_indices_map = np.zeros(cropped_size).reshape(tmpmask.shape)
+        self.roi_cropped_indices_map = np.zeros(cropped_size).reshape(tmpmask.shape)
+        # self.cropped_indices_map = self.cropped_indices_map.reshape(tmpmask.shape)
+        ''' cropped_indices_map will return '''
+
+        self.cropped_indices_nopad_map = np.zeros_like(origmask)
+        self.cropped_indices_nopad_map = self.cropped_indices_map[self.pad:(-1 * self.pad),
+            self.pad:(-1 * self.pad) , self.pad:(-1 * self.pad)]
+        self.cropped_indices_nopad_map = self.cropped_indices_nopad_map.ravel().astype(np.int16)
+        self.cropped_indices_map = self.cropped_indices_map.ravel()
+
+        ''' put -1 where there are no valid pixels '''
+        if self.masklabel:
+            self.cropped_indices_nopad_map[(origmask.ravel() == 0) | (origlabel.ravel() == 4)] = -1
+            self.cropped_indices_map.ravel()[(tmpmask.ravel() == 0) | (tmplabel.ravel() == 4)] = -1
+            self.roi_cropped_indices_map.ravel()[(self.roimask.ravel() == 0) | (tmplabel.ravel() == 4)] = -1
+        else:
+            self.cropped_indices_nopad_map[(origmask.ravel() == 0)] = -1
+            self.cropped_indices_map.ravel()[(tmpmask.ravel() == 0)] = -1
+            self.roi_cropped_indices_map.ravel()[(self.roimask.ravel() == 0)] = -1
+
+        self.cropped_indices_map[self.cropped_indices_map > -1] = \
+            np.arange(0, len(self.cropped_indices_map[self.cropped_indices_map > -1]))
+        self.cropped_indices_map = self.cropped_indices_map.astype(np.int16)
+
+        self.roi_cropped_indices_map[self.roi_cropped_indices_map > -1] = \
+            np.arange(0, len(self.roi_cropped_indices_map[self.roi_cropped_indices_map > -1]))
+        self.roi_cropped_indices_map = self.roi_cropped_indices_map.astype(np.int16)
+        # self.cropped_indices_map.fill(-1)
+        # self.cropped_indices_map[self.cropped_indices_nopad] = np.arange(0,len(self.cropped_indices_nopad))
+        # if self.singleslice:
+        #     if self.masklabel:
+        #         self.cropped_indices = np.where((tmpmask[tmpmask>0].ravel() > 0) & (tmplabel[tmpmask>0].ravel() != 4))[0]
+        #     else:
+        #         self.cropped_indices = np.where((tmpmask[tmpmask > 0].ravel() > 0) )[0]
+        #     cropped_size = np.prod(self.data[xpos:xposend, ypos:yposend, 0].shape[:2])
+        #     self.cropped_indices_map = np.zeros(cropped_size)
+        #     self.cropped_indices_map.fill(-1)
+        #     self.cropped_indices_map[self.cropped_indices] = np.arange(0, len(self.cropped_indices))
+
+        # assert np.sum(self.mask) == np.sum(tmpmask)
+
+        # nonzeros = len(self.indices)
+
+        # self.X5 = self.X5[0:nonzeros]
+        # self.neighbors = self.neighbors[0:nonzeros]
+        # self.neighbors_z = self.neighbors_z[0:nonzeros]
+        # self.neighbors_y = self.neighbors_y[0:nonzeros]
+
+
+        if self.fnoutput:
+            data = {'data':self.data[xpos:xposend, ypos:yposend, zpos:zposend],
+                    'targets': tmplabel,
+                    'indices': self.indices,
+                    'cropped_indices': self.cropped_indices, # bigger area
+                    'cropped_indices_nopad': self.cropped_indices_nopad,  # area with no padding, original area
+                    'cropped_indices_map': self.cropped_indices_map,
+                    'roi_cropped_indices_map': self.roi_cropped_indices_map,
+                    'origsize': self.dataOrigShape,
+                    'cropped_size' : self.data[xpos:xposend, ypos:yposend, zpos:zposend].shape[:3],
+                    'bounds': [[self.xpos, self.xpos_end],
+                               [self.ypos, self.ypos_end],
+                               [self.zpos, self.zpos_end]],
+                    'datasetNum' : self.dataNum
+                    }
+            if self.edgemap:
+                data.update({'edgemap':self.edgemap[xpos:xposend, ypos:yposend, zpos:zposend]})
+            if self.pkl:
+                file_obj = open(self.fnoutput+'.obj', 'wb')
+                pickle.dump(data, file_obj, protocol=4)
+            else:
+                with h5py.File(self.fnoutput + '.h5', "w") as f:
+                    f.create_dataset('data', data=data['data'], chunks=True)
+                    f.create_dataset('targets', data=tmplabel, chunks=True)
+                    f.create_dataset('indices', data=self.indices)
+                    f.create_dataset('cropped_indices', data=self.cropped_indices)
+                    f.create_dataset('cropped_indices_map',data=self.cropped_indices_map)
+                    f.create_dataset('cropped_size', data['data'].shape[:3])
+                    f.attrs['bounds'] = data['bounds']
+                    f.attrs['datasetNum'] = self.dataNum
+                    f.attrs['origsize'] = self.dataOrigShape
+
+        print('Dataset files generated.')

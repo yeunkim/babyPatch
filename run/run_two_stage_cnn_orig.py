@@ -1,28 +1,23 @@
 import numpy as np
-import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
 # import torch.multiprocessing as mp
 from torch.utils.data import DataLoader
-import MRDataSet2_noupsample
-from scipy.spatial import cKDTree
+from Dataset import MRDataSet2_noupsample, MRDataSet2_mult_dataset
 import torch
 from torch.utils.data import ConcatDataset
-from sklearn.neighbors import BallTree, KDTree
+from sklearn.neighbors import KDTree
 from torch.nn import DataParallel
 import two_stage_cnn_dropout
 import two_stage_cnn_uncertainty_orig
-import MRDataSet2_mult_dataset
 import nibabel as nib
 import itertools
-import classify_weightedImg
 
 processes = []
 
 import two_stage_cnn_orig
-import importlib
 from datetime import datetime
 
 torch.backends.cudnn.enabled = True
@@ -130,17 +125,17 @@ class Solver(object):
             self.data =[]
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.obj[i],
-                                                   transform=transforms.Compose([
+                                                          transform=transforms.Compose([
                                                        MRDataSet2_noupsample.ToTensor(multiinput=multiinput, coords=self.coords)
                                                    ]), miscidxs=self.miscidx,
-                                                            multiinput=multiinput, coords=self.coords)
+                                                          multiinput=multiinput, coords=self.coords)
                 self.data.append(tmpdata)
 
         elif self.uncertainty:
             self.data = []
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_mult_dataset.MRDataSet(pkl_file=self.obj[i], pkl_file2=self.uncertfn[i],
-                                                   transform=transforms.Compose([
+                                                            transform=transforms.Compose([
                                                        MRDataSet2_mult_dataset.ToTensor(multiinput=multiinput, coords=self.coords)
                                                    ]), miscidxs=self.miscidx,
                                                             multiinput=multiinput, coords=self.coords)
@@ -152,10 +147,10 @@ class Solver(object):
 
         if self.valobj:
             self.valdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.valobj,
-                                                        transform=transforms.Compose([
-                                                            MRDataSet2_noupsample.ToTensor(multiinput=multiinput,coords=self.coords)
+                                                           transform=transforms.Compose([
+                                                            MRDataSet2_noupsample.ToTensor(multiinput=multiinput, coords=self.coords)
                                                         ]), miscidxs=self.miscidx_val,
-                                                    multiinput=multiinput,coords=self.coords)
+                                                           multiinput=multiinput, coords=self.coords)
 
             self.valdataloader = DataLoader(self.valdata, batch_size=self.batch_size, shuffle=self.shuffle,
                                          num_workers=5, drop_last=False)

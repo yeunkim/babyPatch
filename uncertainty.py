@@ -90,10 +90,10 @@ def render_uncert_imgs(fns, var, niis, subjs, numchannels, iterations, mean=None
 def select_best_model(gm2wm, csf2wm, iterations, initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,
                       valinitinterfeatimgs, validation=True):
     maes = []
-    for j in np.arange(iterations):
+    for i in np.arange(iterations):
         mae = 0
-        for i in np.arange(len(initoutputs_alliterations)):
-            nii = nib.load(initoutputs_alliterations[j][i])
+        for j in np.arange(len(initoutputs_alliterations[i])):
+            nii = nib.load(initoutputs_alliterations[i][j])
             data = nii.get_fdata()
             wm = np.sum(data == 1)
             gm = np.sum(data == 2)

@@ -1,18 +1,12 @@
-import run_two_stage_cnn_orig
 import pickle
 import nibabel as nib
-import MRDataSet2_noupsample
-from torchvision import transforms
-from torch.utils.data import DataLoader
 import time
-import itertools
 import numpy as np
-import data_preproc_noupsample
-import MRDataSet2_mult_dataset
+from preprocess import data_preproc_noupsample
 import uncertainty
-import run_two_stage_cnn_orig
+from run import run_two_stage_cnn_orig
 import torch
-import data_preproc_h5_light
+
 d=1
 
 starttime = time.time()
@@ -104,7 +98,6 @@ for subj in subjs:
 # file_obj = open(obj1ch, 'rb')
 # test1 = pickle.load(file_obj)
     if uncertaintytest:
-        import MRDataSet_h5
         iterative= True
         mean = []
         var = []
@@ -112,8 +105,8 @@ for subj in subjs:
         epoch = 5
         for i in np.arange(iterations):
             solver = run_two_stage_cnn_orig.Solver([fns[0]], epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=1000,
-                                                 in_features=1, labels=3, shuffle=True,
-                                                 channels=1, coords=False, DL=False, softdiceloss=False, dropout=False)
+                                                   in_features=1, labels=3, shuffle=True,
+                                                   channels=1, coords=False, DL=False, softdiceloss=False, dropout=False)
             #solver.model.load_state_dict(torch.load(
             #    '/mnt/data/infant/checkpoints/init_e{1}_lr5e4_f{0}_i{2}_checkpoint_probmean.pth'.format(numchannels, epoch, i)))
             solver.model.load_state_dict(torch.load('/oldmiro/data/SSD_data/infant/checkpoints/init_e10_lr5e4_f4_i3_checkpoint_3input_6data.pth'))
@@ -188,12 +181,12 @@ for subj in subjs:
         # solver = pickle.load(model_obj)
         epoch2 = 5
         solver = run_two_stage_cnn_orig.Solver(['{0}.obj'.format(obj)], epoch=epoch2, lr=5e-4, f_dim=numchannels, batch_size=1000,
-                                             in_features=1,
-                                             labels=3,
-                                             shuffle=True, channels=numchannels, coords=False, DL=False,
-                                             softdiceloss=False,
-                                             uncertainty=True, uncertfn=['{0}.obj'.format(uncert)], channels2=3
-                                             )
+                                               in_features=1,
+                                               labels=3,
+                                               shuffle=True, channels=numchannels, coords=False, DL=False,
+                                               softdiceloss=False,
+                                               uncertainty=True, uncertfn=['{0}.obj'.format(uncert)], channels2=3
+                                               )
         # solver.model.load_state_dict(torch.load(
         #     '/mnt/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint_probmean.pth'.format(epoch2, numchannels,iterations)))
         solver.model.load_state_dict(torch.load(

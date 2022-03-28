@@ -5,22 +5,17 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
 from torch.utils.data import DataLoader
-import MRDataSet2_noupsample
+from Dataset import MRDataSet2_noupsample, MRDataSet2_mult_dataset
 import torch
 from torch.utils.data import ConcatDataset
 # from sklearn.neighbors import BallTree, KDTree
 from torch.nn import DataParallel
-import two_stage_cnn_uncertainty
-import MRDataSet2_mult_dataset
+from models import two_stage_cnn_uncertainty, two_stage_cnn
 import nibabel as nib
 import itertools
-import classify_weightedImg
 
 processes = []
 
-import two_stage_cnn
-import importlib
-from datetime import datetime
 from truncatedloss import TruncatedLoss
 
 torch.backends.cudnn.enabled = True
@@ -115,23 +110,23 @@ class Solver(object):
             self.data =[]
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.obj[i],
-                                                   transform=transforms.Compose([
+                                                          transform=transforms.Compose([
                                                        MRDataSet2_noupsample.ToTensor(multiinput=multiinput,
                                                                                       coords=self.coords,
                                                                                       spherecoord=self.spherecoord)
                                                    ]), miscidxs=self.miscidx, spherecoord=self.spherecoord,
-                                                            multiinput=multiinput, coords=self.coords)
+                                                          multiinput=multiinput, coords=self.coords)
                 self.data.append(tmpdata)
 
         elif self.uncertainty:
             self.data = []
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_mult_dataset.MRDataSet(pkl_file=self.obj[i], pkl_file2=self.uncertfn[i],
-                                                   transform=transforms.Compose([
+                                                            transform=transforms.Compose([
                                                        MRDataSet2_mult_dataset.ToTensor(multiinput=multiinput,
                                                                                         coords=self.coords,
                                                                                         spherecoord=self.spherecoord)
-                                                   ]), miscidxs=self.miscidx,spherecoord=self.spherecoord,
+                                                   ]), miscidxs=self.miscidx, spherecoord=self.spherecoord,
                                                             multiinput=multiinput, coords=self.coords)
                 self.data.append(tmpdata)
         del tmpdata
@@ -144,7 +139,7 @@ class Solver(object):
                 self.valdata = []
                 for i in np.arange(len(self.valobj)):
                     tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.valobj[i],
-                                                                transform=transforms.Compose([
+                                                              transform=transforms.Compose([
                                                                     MRDataSet2_noupsample.ToTensor(
                                                                         spherecoord=self.spherecoord)
                                                                 ]), )
@@ -224,7 +219,7 @@ class Solver(object):
                 val_correct = 0
                 val_total = 0
 
-                for idx, (sample, indices, orig_indices, indx, indz, indy) in enumerate(self.dataloader):
+                for idx, (sample, indices, orig_indices) in enumerate(self.dataloader):
                     if self.uncertainty:
                         neighbors = sample['neighbors']
                         neighbors_z = sample['neighbors_z']
@@ -301,7 +296,7 @@ class Solver(object):
                     self.set_mode('eval')
                     print("Validation:")
                     with torch.no_grad():
-                        for idx, (sample, indices, orig_indices, indx, indz, indy) in enumerate(self.valdataloader):
+                        for idx, (sample, indices, orig_indices) in enumerate(self.valdataloader):
                             if self.uncertainty:
                                 neighbors = sample['neighbors']
                                 neighbors_z = sample['neighbors_z']
@@ -409,23 +404,23 @@ class Solver(object):
             elif imgs is not None:
                 if not self.uncertainty:
                     data = MRDataSet2_noupsample.MRDataSet(pkl_file=imgs[d],
-                                                              transform=transforms.Compose([
+                                                           transform=transforms.Compose([
                                                                   MRDataSet2_noupsample.ToTensor(
                                                                       coords=self.coords,
                                                                       spherecoord=self.spherecoord)
                                                               ]), miscidxs=self.miscidx,
-                                                              spherecoord=self.spherecoord,
-                                                              coords=self.coords)
+                                                           spherecoord=self.spherecoord,
+                                                           coords=self.coords)
                     # data.append(tmpdata)
 
                 elif self.uncertainty:
                     data = MRDataSet2_mult_dataset.MRDataSet(pkl_file=imgs[d], pkl_file2=uncertfn[d],
-                                                                transform=transforms.Compose([
+                                                             transform=transforms.Compose([
                                                                     MRDataSet2_mult_dataset.ToTensor(
                                                                         coords=self.coords,
                                                                         spherecoord=self.spherecoord)
                                                                 ]), miscidxs=self.miscidx,
-                                                                spherecoord=self.spherecoord, coords=self.coords)
+                                                             spherecoord=self.spherecoord, coords=self.coords)
                 ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
                                             num_workers=6, drop_last=False)
                 size = data.dataset.dataOrigShape[:3]
@@ -437,7 +432,7 @@ class Solver(object):
                 size = dataloader.dataset.dataset.dataOrigShape[:3]
                 origindices = dataloader.dataset.dataset.indices
 
-            for idx, (sample, indices, orig_indices, indx, indz, indy) in enumerate(ind_dataloader):
+            for idx, (sample, indices, orig_indices) in enumerate(ind_dataloader):
 
                 if self.uncertainty:
                     neighbors = sample['neighbors']

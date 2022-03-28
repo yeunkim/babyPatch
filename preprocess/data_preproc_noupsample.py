@@ -1,6 +1,6 @@
 import nibabel as nib
 import numpy as np
-from normalization import normalize_mri
+from preprocess.normalization import normalize_mri
 from scipy import spatial
 
 class imagepatches(object):
@@ -56,6 +56,7 @@ class imagepatches(object):
         self.wm = wm
         self.csf = csf
         self.label = nib.load(label).get_fdata()
+        self.dataNum = 0
 
         if self.contlabelfn:
             self.contlabel = nib.load(self.contlabelfn).get_fdata()

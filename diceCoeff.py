@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def diceCoeff(test, truth, labelnum):
 
@@ -16,3 +17,18 @@ def diceCoeff(test, truth, labelnum):
 
     return (2.*intersect)/denom
 
+def diceCoeff_torch(test, truth, labelnum):
+
+    tmp_test0 = torch.zeros_like(test)
+    tmp_test0[test == labelnum] = 1.
+    tmp_test = torch.full(test.shape, -1)
+    tmp_test[ test == labelnum] = 1.
+
+    tmp_truth = torch.zeros_like(truth)
+    tmp_truth[truth == labelnum] = 1.
+    tmp_truth = tmp_truth.cpu()
+
+    intersect = len(torch.where(torch.flatten(tmp_test) == torch.flatten(tmp_truth))[0])
+    denom = torch.sum(tmp_test0 + tmp_truth)
+
+    return (2.*intersect)/denom

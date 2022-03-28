@@ -4,21 +4,17 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
 from torch.utils.data import DataLoader
-import MRDataSet2_noupsample
+from Dataset import MRDataSet2_noupsample, MRDataSet2_mult_dataset
 import torch
 from torch.utils.data import ConcatDataset
 from torch.nn import DataParallel
-import MRDataSet2_mult_dataset
 import nibabel as nib
 import itertools
-import classify_weightedImg_with_uncertainty
 from truncatedloss import TruncatedLoss
-import ae_weightedImg_with_uncertainty
 
 processes = []
 
-import two_stage_cnn
-import importlib
+from models import two_stage_cnn, classify_weightedImg_with_uncertainty, ae_weightedImg_with_uncertainty
 from datetime import datetime
 
 torch.backends.cudnn.enabled = True
@@ -124,7 +120,7 @@ class Solver(object):
             self.data =[]
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_noupsample.MRDataSet(pkl_file=self.obj[i],
-                                                   transform=transforms.Compose([
+                                                          transform=transforms.Compose([
                                                        MRDataSet2_noupsample.ToTensor()
                                                    ]))
                 self.data.append(tmpdata)
@@ -133,7 +129,7 @@ class Solver(object):
             self.data = []
             for i in np.arange(len(self.obj)):
                 tmpdata = MRDataSet2_mult_dataset.MRDataSet(pkl_file=self.obj[i], pkl_file2=self.uncertfn[i],
-                                                   transform=transforms.Compose([
+                                                            transform=transforms.Compose([
                                                        MRDataSet2_mult_dataset.ToTensor()
                                                    ]), )
                 self.data.append(tmpdata)
