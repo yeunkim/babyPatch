@@ -441,7 +441,7 @@ class Solver(object):
             L = np.zeros(size3d)
             L.reshape((np.prod(padsize), self.labels))[origindices] = labeled
             L = L[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
-            labeled_list.append(L.reshape(np.prod(size), 3))
+            labeled_list.append(L.reshape(np.prod(size), 2))
 
             del L
             del orig_indices

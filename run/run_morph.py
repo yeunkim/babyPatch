@@ -3,6 +3,7 @@ import torch.optim as optim
 from collections import namedtuple, deque
 import random
 import skimage.morphology as morph
+from torchvision import transforms
 from skimage.feature import canny
 from diceCoeff import diceCoeff, diceCoeff_torch
 import numpy as np
@@ -10,10 +11,11 @@ import math
 import torch
 from RL.optimize import optimize_model
 from Dataset.testDataset import ToTensor, testDataset, shapes
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from skimage.measure import regionprops
 from scipy.ndimage import affine_transform
 from evaluation import maxhd
+from Dataset.MRDataSet_v22 import MRDataSet, ToTensor
 
 class ReplayMemory(object):
 
@@ -33,7 +35,7 @@ class ReplayMemory(object):
 
 class Solver(object):
     def __init__(self, img, label, batch_size = 1000,  patch_size=10, channels=1, gamma = 0.9, eps_start=0.999,
-                 eps_end=0.05, eps_decay=200,):
+                 eps_end=0.05, eps_decay=200, slices=False, axes=(True, False, False), numslices=(10,10,10)):
         self.img = img
         self.label = label
         self.batch_size = batch_size
@@ -44,6 +46,9 @@ class Solver(object):
         self.eps_end = eps_end
         self.eps_decay = eps_decay
         self.steps_done = 0
+        self.slices = slices
+        self.axes = axes
+        self.numslices = numslices
 
         self.actions = shapes()
         self.n_actions = len(self.actions.aff_matrices)
@@ -56,8 +61,16 @@ class Solver(object):
 
         self.dil_optimizer = optim.Adam(self.dil_policy_net.parameters())
 
-        self.data = testDataset(self.img, self.label, ToTensor())
-        self.dataloader = DataLoader(self.data, batch_size=self.batch_size, shuffle=True, num_workers=0, drop_last=False)
+        # self.data = testDataset(self.img, self.label, ToTensor())
+        self.data = []
+        for i in np.arange(len(self.img)):
+            tmpdata = MRDataSet(file=self.img[i],
+                                              transform=transforms.Compose([ToTensor()]),
+                                              render=True, slices=self.slices, axes=self.axes,
+                                              numslices=self.numslices)
+            self.data.append(tmpdata)
+
+        self.dataloader = DataLoader(ConcatDataset(self.data), batch_size=self.batch_size, shuffle=True, num_workers=0, drop_last=False)
 
     def dilate(self, action, cluster_img):
         cluster_img = cluster_img.cpu()
