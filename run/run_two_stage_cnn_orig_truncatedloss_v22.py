@@ -95,7 +95,7 @@ class Solver(object):
                                                   numslices=self.numslices)
                 self.data.append(tmpdata)
         del tmpdata
-        self.traintotalAmount = ConcatDataset(self.data).cumulative_sizes[0]
+        self.traintotalAmount = ConcatDataset(self.data).cumulative_sizes[-1]
         self.trainAmount = int(self.traintotalAmount * self.dataset_portion)
 
         traindata, testdata = torch.utils.data.random_split(ConcatDataset(self.data),
@@ -352,6 +352,7 @@ class Solver(object):
                 with h5py.File(imgs[d], "r") as f:
                     size = f.attrs['origsize'][:3]
                     bounds = f.attrs['bounds']
+                    padsize = f['data'].shape
                 # del data
                 origindices = []
 
@@ -414,26 +415,21 @@ class Solver(object):
                 values[B] = self.xhats[B].data.cpu().numpy()
             del self.xhats
 
-            size4d = np.concatenate((size, [self.f_dim]))
-            size3d = np.concatenate((size, [self.labels]))
+            size4d = np.concatenate((padsize, [self.f_dim]))
+            size3d = np.concatenate((padsize, [self.labels]))
 
             Y = np.zeros(size4d)
-            Y.reshape((np.prod(size), self.f_dim))[origindices] = values
-            # Y = np.zeros(size4d)
-            # for idx in np.arange(maxindices.shape[0]):
-            #     idxs = np.unravel_index(origindices[idx], size)
-            #     Y[idxs] = values[idx]
+            Y.reshape((np.prod(padsize), self.f_dim))[origindices] = values
+            # remove padding
+            Y = Y[self.pad:-self.pad, self.pad:-self.pad,self.pad:-self.pad]
             recon = nib.Nifti1Image(Y, affine=affine[d])
             del Y, values
             nib.save(recon, filename=intimgname[d])
             del recon
 
-            X = np.zeros(size)
+            X = np.zeros(padsize)
             X.ravel()[origindices] = maxindices
-            # X = np.zeros(size)
-            # for idx in np.arange(maxindices.shape[0]):
-            #     idxs = np.unravel_index(origindices[idx], size)
-            #     X[idxs] = maxindices[idx] + 1
+            X = X[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
             recon = nib.Nifti1Image(X.astype(np.int16), affine=affine[d])
             # recon.header.set_data_dtype(np.int16)
             del X
@@ -442,11 +438,8 @@ class Solver(object):
             del recon
 
             L = np.zeros(size3d)
-            L.reshape((np.prod(size), self.labels))[origindices] = labeled
-            # for idx in np.arange(maxindices.shape[0]):
-            #     idxs = np.unravel_index(origindices[idx], size)
-            #     L[idxs] = labeled[idx]
-
+            L.reshape((np.prod(padsize), self.labels))[origindices] = labeled
+            L = L[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
             labeled_list.append(L.reshape(np.prod(size3d[:3]), 3))
 
             del L

@@ -1,3 +1,5 @@
+# skull-stripping
+
 
 import nibabel as nib
 import time
@@ -10,41 +12,41 @@ from preprocess import generate_wmsubgm_mask, generate_obj_files
 
 ## hyperparameters
 numchannels = 4
-iterations = 5
+iterations = 2
 pad = 5
 validation=True
 iterative = 1
 generator = False
-epoch = 7
-gm2wm = 0.91487 # ratio of number of voxels (gm to wm) [if skull stripping -> put brain:non-brain]
-csf2wm = 0.48580 # ratio of number of voxels (csf to wm) [0 if skull stripping]
+epoch = 3
+gm2wm = 0.29 # ratio of number of voxels (gm to wm) [if skull stripping -> put brain:non-brain]
+csf2wm = 0 # ratio of number of voxels (csf to wm) [0 if skull stripping]
 third_model = False
-numslices =(10,0,0)
+numslices =(10,10,10)
 slices = True
-axes = (True,False,False)
-dataset_portion = 0.5
+axes = (True,True,True)
+dataset_portion = 0.50
 pkl = False
 
 ## set file names and folder paths
-subjs = {'val':['010'], #
-        'train':['023'] } #,'087',
+subjs = {'val':['injured24h'], #
+        'train':['sham', 'injured24h']}
 
 for numslices in [10,25,50]:
     print('Number of slices: {0}'.format(numslices))
 # numslices = 10
-    losses_folder = '/data/infant/losses/'
-    checkpoints_folder = '/data/infant/checkpoints/'
-    intermediate_folder = '/data/infant/intermediate_nii/'
-    outputs_folder =  '/data/infant/outputs/'
-    objects_folder = '/data/infant/objects/'
+    losses_folder = '/data/mouse/losses/'
+    checkpoints_folder = '/data/mouse/checkpoints/'
+    intermediate_folder = '/data/mouse/intermediate_nii/'
+    outputs_folder =  '/data/mouse/outputs/'
+    objects_folder = '/data/mouse/objects/'
     fns_whole = ['/{1}/{0}_whole.h5'.format(subjs['train'][i],objects_folder) for i in range(len(subjs['train']))]
     valfns_whole = ['/{1}/{0}_whole.h5'.format(subjs['val'][i],objects_folder) for i in range(len(subjs['val']))]
-    masks = ['/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
-    niis = [nib.load('/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['train'][i]))._affine for i in range(len(subjs['train']))]
-    valmasks = ['/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
-    valniis = [nib.load('/data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subjs['val'][i]))._affine for i in range(len(subjs['val']))]
-    labels = ['/data/infant/t2traindata_labels_handedit_YK_05072020/{0}-C-T1.T2w.final.label.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
-    vallabels = ['/data/infant/t2traindata_labels_handedit_YK_05072020/{0}-C-T1.T2w.final.label.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
+    # masks = ['/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
+    niis = [nib.load('/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['train'][i]))._affine for i in range(len(subjs['train']))]
+    # valmasks = ['/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
+    valniis = [nib.load('/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['val'][i]))._affine for i in range(len(subjs['val']))]
+    labels = ['/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
+    vallabels = ['/data/mouse/Neil_TBI/T2highres_{0}.mask.nii.gz'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
 
     mean = []
     var = []
@@ -71,8 +73,8 @@ for numslices in [10,25,50]:
             with open(textfn, 'w') as f:
                 f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
             print('Starting first model training, iteration number {0}, uncertainty iteration {1}'.format(ITER + 1, ii+1))
-            solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(fns_whole, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=25000,
-                                            labels=3, shuffle=True, pad=pad, channels=1, textfn = textfn, suffix=suffix, valobj=valfns_whole,
+            solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(fns_whole, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=22500,
+                                            labels=2, shuffle=True, pad=pad, channels=1, textfn = textfn, suffix=suffix, valobj=valfns_whole,
                                             numslices= numslices, slices=slices, axes = axes, dataset_portion=dataset_portion
                                             )
             solver.train()
@@ -157,11 +159,11 @@ for numslices in [10,25,50]:
             obj = '/{6}/{4}_{0}ch_initinterfeatimg_e{1}_i{3}_{5}'.format(
                 numchannels, epoch, i, smallestidx, subjs['train'][i], suffix,objects_folder)
             objs.append('{0}.h5'.format(obj))
-            generate_obj_files.generate_h5_files(obj, initinterfeatimgs_for_refstage[i], masks[i], labels[i])
+            generate_obj_files.generate_h5_files(obj, initinterfeatimgs_for_refstage[i], None, labels[i])
             uncert = '//{6}/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
                                                                         subjs['train'][i], suffix,objects_folder)
             uncerts.append('{0}.h5'.format(uncert))
-            generate_obj_files.generate_h5_files(uncert, uncertniis[i], masks[i], labels[i])
+            generate_obj_files.generate_h5_files(uncert, uncertniis[i], None, labels[i])
 
         if validation:
             for i in np.arange(len(valfns_whole)):
@@ -172,11 +174,11 @@ for numslices in [10,25,50]:
                 obj = '//{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_i{3}_{5}'.format(
                     numchannels, epoch,i, smallestidx, subjs['val'][i], suffix,objects_folder)
                 valobjs.append('{0}.h5'.format(obj))
-                generate_obj_files.generate_h5_files(obj, valinitinterfeatimgs_for_refstage[i], valmasks[i], vallabels[i])
+                generate_obj_files.generate_h5_files(obj, valinitinterfeatimgs_for_refstage[i],None, vallabels[i])
                 uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(
                     numchannels, epoch, i,smallestidx,subjs['val'][i], suffix,objects_folder)
                 valuncerts.append('{0}.h5'.format(uncert))
-                generate_obj_files.generate_h5_files(uncert, valuncertniis[i], valmasks[i], vallabels[i])
+                generate_obj_files.generate_h5_files(uncert, valuncertniis[i], None, vallabels[i])
 
 
         # ############################################################################################
@@ -255,7 +257,7 @@ for numslices in [10,25,50]:
 
         with open(textfn, 'w') as f:
             f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
-        solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(objs, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=25000, labels=3,
+        solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(objs, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=20000, labels=2,
                                                              shuffle=True, channels=numchannels, pad=pad,  textfn=textfn,
                                                              uncertainty=True, uncertfn= uncerts, channels2=3, valobj=valobjs, valuncertfn=valuncerts,
                                                                  numslices=numslices, slices=slices, axes=axes,
@@ -277,7 +279,7 @@ for numslices in [10,25,50]:
             refineinterfeatimgs.append(refineinterfeatimg)
             refineoutputs.append(refineoutput)
 
-        label_OHE = solver.test(refineinterfeatimgs, refineoutputs, niis, batchsize=25000, imgs=objs, uncertfn=uncerts) #,
+        label_OHE = solver.test(refineinterfeatimgs, refineoutputs, niis, batchsize=20000, imgs=objs, uncertfn=uncerts) #,
         del label_OHE
         del solver.data, solver.dataloader, solver.valdata, solver.valdataloader
 
@@ -292,7 +294,7 @@ for numslices in [10,25,50]:
                 valrefineinterfeatimgs.append(valrefineinterfeatimg)
                 valrefineoutputs.append(valrefineoutput)
 
-            label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, valniis, batchsize=25000, imgs=valobjs, uncertfn=valuncerts)
+            label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, valniis, batchsize=20000, imgs=valobjs, uncertfn=valuncerts)
             del label_OHE
         ## time
         elapsed = time.time() - starttime

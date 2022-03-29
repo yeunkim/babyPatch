@@ -97,6 +97,7 @@ class MRDataSet(Dataset):
                 else:
                     empty_mask[(self.dataset['mask'][:] == 0)] = 0
                 self.idxs = np.asarray(np.where(empty_mask>0))
+        # print('stop')
         # print out json files with details using logging_functions
 
 
