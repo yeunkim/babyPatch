@@ -77,10 +77,10 @@ for numslices in [10,25,50]:
                                             labels=2, shuffle=True, pad=pad, channels=1, textfn = textfn, suffix=suffix, valobj=valfns_whole,
                                             numslices= numslices, slices=slices, axes = axes, dataset_portion=dataset_portion
                                             )
-            solver.train()
+            # solver.train()
 
-            # solver.model.load_state_dict(torch.load(
-            #     '/{4}/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),0,suffix,checkpoints_folder)))
+            solver.model.load_state_dict(torch.load(
+                '/{4}/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),0,suffix,checkpoints_folder)))
             # solver.train(epoch=epoch_ext)
             initinterfeatimgs = []
             initoutputs = []
@@ -105,14 +105,15 @@ for numslices in [10,25,50]:
                 initinterfeatimgs_alliterations.append(initinterfeatimgs)
                 initoutputs_alliterations.append(initoutputs)
             initmodel = ('/{4}/init_e{1}_lr5e4_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),ii,suffix,checkpoints_folder))
-            torch.save(solver.model.state_dict(), initmodel)
+            # torch.save(solver.model.state_dict(), initmodel)
             initimodels.append(initmodel)
 
-            label_OHE = solver.test(initinterfeatimgs, initoutputs, niis,batchsize=5000, imgs=fns_whole)
+            label_OHE = solver.test(initinterfeatimgs, initoutputs, niis,batchsize=25000, imgs=fns_whole, num_workers=8)
 
             mean, var = uncertainty.compute_var_mean(label_OHE, mean, var, ii) # running calculation of mean and variance of the estimates
             if validation:
-                label_OHE = solver.test(valinitinterfeatimgs, valinitoutputs, valniis, batchsize=5000, imgs=valfns_whole)
+                label_OHE = solver.test(valinitinterfeatimgs, valinitoutputs, valniis, batchsize=25000, imgs=valfns_whole,
+                                        num_workers=8)
                 valmean, valvar = uncertainty.compute_var_mean(label_OHE, valmean, valvar, ii)
 
             del label_OHE

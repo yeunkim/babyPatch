@@ -54,15 +54,15 @@ def render_uncert_imgs(fns, var, niis, subjs, numchannels, iterations, mean=None
         #del test1
         recon = nib.Nifti1Image(var1, affine=niis[f])
         nib.save(recon,
-                 filename='/data/infant/variance/{0}_var1_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
+                 filename='/data/mouse/variance/{0}_var1_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
                                                                                                 iterations, f, suffix))
         recon = nib.Nifti1Image(var2, affine=niis[f])
         nib.save(recon,
-                 filename='/data/infant/variance/{0}_var2_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
+                 filename='/data/mouse/variance/{0}_var2_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
                                                                                                 iterations, f, suffix))
         recon = nib.Nifti1Image(var3, affine=niis[f])
         nib.save(recon,
-                 filename='/data/infant/variance/{0}_var3_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
+                 filename='/data/mouse/variance/{0}_var3_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
                                                                                                 iterations, f, suffix))
 
         sizevar = size + (3,)
@@ -74,7 +74,7 @@ def render_uncert_imgs(fns, var, niis, subjs, numchannels, iterations, mean=None
 
         recon = nib.Nifti1Image(vars, affine=niis[f])
         nib.save(recon,
-                 '/data/infant/variance/{0}_vars_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels, iterations,
+                 '/data/mouse/variance/{0}_vars_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels, iterations,
                                                                                        f, suffix))
 
         if mean is not None:
@@ -84,7 +84,7 @@ def render_uncert_imgs(fns, var, niis, subjs, numchannels, iterations, mean=None
             means[:, :, :, 2] = mean[f][:, 2].reshape(size)
 
             recon = nib.Nifti1Image(means, affine=niis[f])
-            nib.save(recon, '/data/infant/variance/{0}_means_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
+            nib.save(recon, '/data/mouse/variance/{0}_means_i{2}_{1}ch_en_{3}{4}.nii.gz'.format(subjs[f], numchannels,
                                                                                                     iterations, f, suffix))
 
 def select_best_model(gm2wm, csf2wm, iterations, initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,

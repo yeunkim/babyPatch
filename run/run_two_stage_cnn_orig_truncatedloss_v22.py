@@ -31,8 +31,9 @@ class Solver(object):
     def __init__(self, obj, valobj=None, epoch=30, batch_size=100000, lr=2e-4, f_dim =5, pad =5, lossThresh = 0.2,
                  beta=0.25, labels=3, shuffle=True, valuncertfn = None, numslices =(10,0,0),
                  channels=1, uncertainty = False, uncertfn = None, slices = False, axes = (True,True,True),
-                 channels2 = 3, textfn='/data/avgloss.txt', suffix = '', dataset_portion = 0.5
+                 channels2 = 3, textfn='/data/avgloss.txt', suffix = '', dataset_portion = 0.5, num_workers = 6
                  ):
+        self.num_workers = num_workers
         self.obj = obj
         self.valobj = valobj
         self.epoch = epoch
@@ -101,7 +102,7 @@ class Solver(object):
         traindata, testdata = torch.utils.data.random_split(ConcatDataset(self.data),
                                                             [int(self.trainAmount), int(self.traintotalAmount-self.trainAmount)])
         self.dataloader = DataLoader(traindata, batch_size=self.batch_size, shuffle=self.shuffle,
-                                     num_workers=2, drop_last=False)
+                                     num_workers=self.num_workers, drop_last=False)
 
         if self.valobj:
             self.valdata = []
@@ -125,7 +126,7 @@ class Solver(object):
             valdata, _ = torch.utils.data.random_split(ConcatDataset(self.valdata),
                                                        [int(self.valtrainAmount), int(self.valtotalAmount - self.valtrainAmount)])
             self.valdataloader = DataLoader(valdata, batch_size=self.batch_size,
-                                            shuffle=self.shuffle, num_workers=5, drop_last=False)
+                                            shuffle=self.shuffle, num_workers= self.num_workers, drop_last=False)
             self.valcriterion = TruncatedLoss(trainset_size=self.valtotalAmount).cuda()
 
         # Optimizer
@@ -308,7 +309,7 @@ class Solver(object):
         print("[*] Training Finished!")
 
     def test(self, intimgname, intoutname, affine, dataloader= None, batchsize =1000, imgs = None, uncertfn = None,
-             slices = False, axes = (True, True, True), numslices = (10,0,0)):
+             slices = False, axes = (True, True, True), numslices = (10,0,0), num_workers = 6):
         self.set_mode('eval')
         self.model.eval()
         X_list = []
@@ -329,7 +330,7 @@ class Solver(object):
             self.maxindxs_mod = []
             if (dataloader is None) and (imgs is None):
                 ind_dataloader = DataLoader(self.data[d], batch_size=batchsize, shuffle=False,
-                                             num_workers=6, drop_last=False)
+                                             num_workers=num_workers, drop_last=False)
                 size = self.data[d].dataset.dataOrigShape[:3]
                 origindices = self.data[d].dataset.indices
             elif imgs is not None:
@@ -348,7 +349,7 @@ class Solver(object):
                                                         numslices=numslices)
 
                 ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
-                                            num_workers=6, drop_last=False)
+                                            num_workers=num_workers, drop_last=False)
                 with h5py.File(imgs[d], "r") as f:
                     size = f.attrs['origsize'][:3]
                     bounds = f.attrs['bounds']
@@ -440,7 +441,7 @@ class Solver(object):
             L = np.zeros(size3d)
             L.reshape((np.prod(padsize), self.labels))[origindices] = labeled
             L = L[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
-            labeled_list.append(L.reshape(np.prod(size3d[:3]), 3))
+            labeled_list.append(L.reshape(np.prod(size), 3))
 
             del L
             del orig_indices
