@@ -97,7 +97,7 @@ class MRDataSet(Dataset):
                     empty_mask[(self.dataset['mask'][:] == 0)] = 0
                 self.idxs = np.asarray(np.where(empty_mask>0))
         # print out json files with details using logging_functions
-
+        # print(shape)
     def __len__(self):
         length = len(self.idxs[0])
         return length

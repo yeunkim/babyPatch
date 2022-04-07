@@ -6,6 +6,7 @@ import collections
 import h5py
 import pickle
 from scipy.ndimage import affine_transform
+from collections import namedtuple
 
 ## modification: pad image for skull stripping
 
@@ -14,7 +15,7 @@ class imagepatches(object):
     def __init__(self, fname, mask=None, label=None,
                  gm=150, wm=250, csf=10, num_classes=4, pad = 3, masklabel=False,k_t2=4, k_t2_init=None,
                  channels=None, normalize=True, normfactors = None,
-                 setbounds = False, bounds=(), skullstrip=True,
+                 setbounds = False, bounds=(), skullstrip=True, ram = False,
                  fnoutput='data.h5', dataNum = 0, pkl = False):
 
         self.pad = pad
@@ -25,6 +26,7 @@ class imagepatches(object):
         self.dataNum = dataNum
         self.fnoutput = fnoutput
         self.pkl = pkl
+        self.ram = ram
         if normfactors:
             self.normfactors = normfactors
         else:
@@ -35,16 +37,16 @@ class imagepatches(object):
         self.nii = nib.load(fname)
         self.data = self.nii.get_fdata()
         self.dataaff = self.nii._affine
-        diff = self.dataaff[:3,:3] - np.eye(3)
-        if np.count_nonzero(diff) > 3:
-            diff[diff !=0] = 1
-            axes = np.where(np.sum(diff, axis=1) >1)[0]
-            if not np.any(axes == 0):
-                self.data = self.data.transpose((0, 2, 1))
-            if not np.any(axes == 1):
-                self.data = self.data.transpose((2,1, 0))
-            if not np.any(axes == 2):
-                self.data = self.data.transpose((1,0, 2))
+        # diff = self.dataaff[:3,:3] - np.eye(3)
+        # if np.count_nonzero(diff) > 3:
+        #     diff[diff !=0] = 1
+        #     axes = np.where(np.sum(diff, axis=1) >1)[0]
+        #     if not np.any(axes == 0):
+        #         self.data = self.data.transpose((0, 2, 1))
+        #     if not np.any(axes == 1):
+        #         self.data = self.data.transpose((2,1, 0))
+        #     if not np.any(axes == 2):
+        #         self.data = self.data.transpose((1,0, 2))
         self.dataOrigShape = self.data.shape
 
         self.indices = []
@@ -112,10 +114,12 @@ class imagepatches(object):
         self.data[idxs] /= self.std
 
     def run_pad(self):
-        self.data = np.pad(self.data, self.pad)
-        # self.mask = np.pad(self.mask, self.pad)
-        self.label = np.pad(self.label, self.pad)
+        if len(self.data.shape) == 3:
+            self.data = np.pad(self.data,self.pad)
+        if len(self.data.shape) == 4:
+            self.data = np.pad(self.data,((self.pad,self.pad),(self.pad,self.pad),(self.pad,self.pad),(0,0)))
 
+        self.label = np.pad(self.label, self.pad)
     ## get bounds
     def get_bounds(self):
         for i in range(self.mask.shape[0]):
@@ -161,7 +165,11 @@ class imagepatches(object):
         if self.pkl:
             file_obj = open(self.fnoutput+'.obj', 'wb')
             pickle.dump(data, file_obj, protocol=4)
-        else:
+            print('Dataset files generated.')
+        elif self.ram:
+            dataset = namedtuple('dataset', ('data', 'targets', 'mask', 'bounds', 'origsize'))
+            self.dataset = dataset(data['data'], data['targets'], data['mask'], data['bounds'], data['origsize'])
+        elif not self.pkl:
             chunks=None
             with h5py.File(self.fnoutput + '.h5', "w") as f:
                 f.create_dataset('data', data=data['data'], chunks=chunks)
@@ -170,5 +178,7 @@ class imagepatches(object):
                 f.attrs['bounds'] = data['bounds']
                 f.attrs['datasetNum'] = self.dataNum
                 f.attrs['origsize'] = self.dataOrigShape
+            print('Dataset files generated.')
 
-        print('Dataset files generated.')
+    def return_data_struct(self):
+        return self.dataset

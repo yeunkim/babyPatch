@@ -5,7 +5,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from Dataset import MRDataSet2_noupsample, MRDataSet2_mult_dataset, MRDataSet_v22, MRDataSet_mult_v22
+from Dataset import MRDataSet2_noupsample, MRDataSet2_mult_dataset, MRDataSet_v22, MRDataSet_mult_v22, MRDataSet_test_mult_v22
 import torch
 from torch.utils.data import ConcatDataset
 # from sklearn.neighbors import BallTree, KDTree
@@ -14,6 +14,7 @@ from models import two_stage_cnn_uncertainty, two_stage_cnn
 import nibabel as nib
 import itertools
 import h5py
+from Dataset import MRDataSet_test_v22
 
 processes = []
 
@@ -121,7 +122,7 @@ class Solver(object):
                                                   numslices=self.numslices)
                     self.valdata.append(tmpdata)
             del tmpdata
-            self.valtotalAmount = ConcatDataset(self.valdata).cumulative_sizes[0]
+            self.valtotalAmount = ConcatDataset(self.valdata).cumulative_sizes[-1]
             self.valtrainAmount = int(self.valtotalAmount * self.dataset_portion)
             valdata, _ = torch.utils.data.random_split(ConcatDataset(self.valdata),
                                                        [int(self.valtrainAmount), int(self.valtotalAmount - self.valtrainAmount)])
@@ -308,143 +309,167 @@ class Solver(object):
 
         print("[*] Training Finished!")
 
-    def test(self, intimgname, intoutname, affine, dataloader= None, batchsize =1000, imgs = None, uncertfn = None,
+    def test(self, intimgname, intoutname, affine, dataset=None, dataset2=None, dataloader= None, batchsize =1000, imgs = None, uncertfn = None,
              slices = False, axes = (True, True, True), numslices = (10,0,0), num_workers = 6):
         self.set_mode('eval')
         self.model.eval()
         X_list = []
         labeled_list = []
         self.xhat_list = []
-        if dataloader is not None:
-            datanum = 1
-        elif imgs is not None:
-            datanum = len(imgs)
+        # if dataloader is not None:
+        #     datanum = 1
+        # elif imgs is not None:
+        #     datanum = len(imgs)
+        # else:
+        #     datanum = len(self.obj)
+        #
+        #
+        # for d in np.arange(datanum):
+        #     self.xhats = []
+        #     self.maxindxs = []
+        #     label_OHEs = []
+        #     self.maxindxs_mod = []
+        #     if (dataloader is None) and (imgs is None):
+        #         ind_dataloader = DataLoader(self.data[d], batch_size=batchsize, shuffle=False,
+        #                                      num_workers=num_workers, drop_last=False)
+        #         size = self.data[d].dataset.dataOrigShape[:3]
+        #         origindices = self.data[d].dataset.indices
+        #     elif imgs is not None:
+        #         if not self.uncertainty:
+        #             data = MRDataSet_v22.MRDataSet(file=imgs[d],
+        #                                               transform=transforms.Compose([MRDataSet_v22.ToTensor()]),
+        #                                               render=True,
+        #                                            slices=slices, axes=axes,
+        #                                               numslices=numslices
+        #                                            )
+        #         else:
+        #             data = MRDataSet_mult_v22.MRDataSet(file=imgs[d], file2=uncertfn[d],
+        #                                                 transform=transforms.Compose(
+        #                                                     [MRDataSet_mult_v22.ToTensor()]),
+        #                                                 render=True, slices=slices, axes=axes,
+        #                                                 numslices=numslices)
+        #
+        #         ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
+        #                                     num_workers=num_workers, drop_last=False)
+        #         with h5py.File(imgs[d], "r") as f:
+        #             size = f.attrs['origsize'][:3]
+        #             bounds = f.attrs['bounds']
+        #             padsize = f['data'].shape
+        #         # del data
+        #         origindices = []
+        #
+        #     elif dataloader is not None:
+        #         ind_dataloader = dataloader
+        #         size = dataloader.dataset.dataset.dataOrigShape[:3]
+        #         origindices = dataloader.dataset.dataset.indices
+
+        self.xhats = []
+        self.maxindxs = []
+        label_OHEs = []
+        self.maxindxs_mod = []
+        origindices = []
+
+        if not self.uncertainty:
+            data = MRDataSet_test_v22.MRDataSet(dataset,transform=transforms.Compose([MRDataSet_v22.ToTensor()]),
+                                                          render=True,
+                                                       slices=slices, axes=axes,
+                                                          numslices=numslices
+                                                       )
         else:
-            datanum = len(self.obj)
-
-
-        for d in np.arange(datanum):
-            self.xhats = []
-            self.maxindxs = []
-            label_OHEs = []
-            self.maxindxs_mod = []
-            if (dataloader is None) and (imgs is None):
-                ind_dataloader = DataLoader(self.data[d], batch_size=batchsize, shuffle=False,
-                                             num_workers=num_workers, drop_last=False)
-                size = self.data[d].dataset.dataOrigShape[:3]
-                origindices = self.data[d].dataset.indices
-            elif imgs is not None:
-                if not self.uncertainty:
-                    data = MRDataSet_v22.MRDataSet(file=imgs[d],
-                                                      transform=transforms.Compose([MRDataSet_v22.ToTensor()]),
-                                                      render=True,
-                                                   slices=slices, axes=axes,
-                                                      numslices=numslices
-                                                   )
-                else:
-                    data = MRDataSet_mult_v22.MRDataSet(file=imgs[d], file2=uncertfn[d],
-                                                        transform=transforms.Compose(
-                                                            [MRDataSet_mult_v22.ToTensor()]),
-                                                        render=True, slices=slices, axes=axes,
-                                                        numslices=numslices)
-
-                ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
+            data = MRDataSet_test_mult_v22.MRDataSet(dataset, dataset2,
+                                                                transform=transforms.Compose(
+                                                                    [MRDataSet_test_mult_v22.ToTensor()]),
+                                                                render=True, slices=slices, axes=axes,
+                                                                numslices=numslices)
+        ind_dataloader = DataLoader(data, batch_size=batchsize, shuffle=False,
                                             num_workers=num_workers, drop_last=False)
-                with h5py.File(imgs[d], "r") as f:
-                    size = f.attrs['origsize'][:3]
-                    bounds = f.attrs['bounds']
-                    padsize = f['data'].shape
-                # del data
-                origindices = []
+        size = dataset.origsize[:3]
+        bounds = dataset.bounds
+        padsize = dataset.data.shape
+        padsize3 = padsize[:3]
+        for idx, (sample, indices, orig_indices) in enumerate(ind_dataloader):
 
-            elif dataloader is not None:
-                ind_dataloader = dataloader
-                size = dataloader.dataset.dataset.dataOrigShape[:3]
-                origindices = dataloader.dataset.dataset.indices
+            if self.uncertainty:
+                neighbors = sample['neighbors']
+                neighbors_z = sample['neighbors_z']
+                neighbors_y = sample['neighbors_y']
+                ylabel = sample['label']
+                neighbors2 = sample['neighbors2']
+                neighbors2_z = sample['neighbors2_z']
+                neighbors2_y = sample['neighbors2_y']
 
-            for idx, (sample, indices, orig_indices, _) in enumerate(ind_dataloader):
+                neigh = Variable(neighbors.cuda(), requires_grad=False)
+                neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
+                neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
+                y = Variable(ylabel.cuda(), requires_grad=False)
+                neigh2 = Variable(neighbors2.cuda(), requires_grad=False)
+                neigh2_z = Variable(neighbors2_z.cuda(), requires_grad=False)
+                neigh2_y = Variable(neighbors2_y.cuda(), requires_grad=False)
 
-                if self.uncertainty:
-                    neighbors = sample['neighbors']
-                    neighbors_z = sample['neighbors_z']
-                    neighbors_y = sample['neighbors_y']
-                    ylabel = sample['label']
-                    neighbors2 = sample['neighbors2']
-                    neighbors2_z = sample['neighbors2_z']
-                    neighbors2_y = sample['neighbors2_y']
+                label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y, neigh2, neigh2_z, neigh2_y)
 
-                    neigh = Variable(neighbors.cuda(), requires_grad=False)
-                    neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
-                    neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
-                    y = Variable(ylabel.cuda(), requires_grad=False)
-                    neigh2 = Variable(neighbors2.cuda(), requires_grad=False)
-                    neigh2_z = Variable(neighbors2_z.cuda(), requires_grad=False)
-                    neigh2_y = Variable(neighbors2_y.cuda(), requires_grad=False)
+            else:
+                neighbors = sample['neighbors']
+                neighbors_z = sample['neighbors_z']
+                neighbors_y = sample['neighbors_y']
 
-                    label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y, neigh2, neigh2_z, neigh2_y)
+                neigh = Variable(neighbors.cuda(), requires_grad=False)
+                neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
+                neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
+                label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y)
 
-                else:
-                    neighbors = sample['neighbors']
-                    neighbors_z = sample['neighbors_z']
-                    neighbors_y = sample['neighbors_y']
+            origindices.append(orig_indices)
 
-                    neigh = Variable(neighbors.cuda(), requires_grad=False)
-                    neigh_z = Variable(neighbors_z.cuda(), requires_grad=False)
-                    neigh_y = Variable(neighbors_y.cuda(), requires_grad=False)
-                    label_OHE, xhat, maxindx = self.model(neigh, neigh_z, neigh_y)
+            label_OHEs.append(label_OHE.detach())
 
-                origindices.append(orig_indices)
+            self.xhats.append(xhat.detach())
+            self.maxindxs.append(maxindx.detach().data)
 
-                label_OHEs.append(label_OHE.detach())
-
-                self.xhats.append(xhat.detach())
-                self.maxindxs.append(maxindx.detach().data)
-
-            del ind_dataloader
-            origindices = np.concatenate(origindices)
-            labeled = torch.cat(label_OHEs, 0)
-            del label_OHEs
-            labeled = labeled.data.cpu().numpy()
-            maxindices = torch.cat(self.maxindxs, 0).cpu().numpy()
-            maxindices = maxindices + 1
-            del self.maxindxs
+        del ind_dataloader
+        origindices = np.concatenate(origindices)
+        labeled = torch.cat(label_OHEs, 0)
+        del label_OHEs
+        labeled = labeled.data.cpu().numpy()
+        maxindices = torch.cat(self.maxindxs, 0).cpu().numpy()
+        maxindices = maxindices + 1
+        del self.maxindxs
 
 
-            self.xhats = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
-            values = np.zeros([self.xhats.shape[0], self.f_dim])
-            for B in np.arange(len(self.xhats)):
-                values[B] = self.xhats[B].data.cpu().numpy()
-            del self.xhats
+        self.xhats = np.asarray(list(itertools.chain.from_iterable(self.xhats)))
+        values = np.zeros([self.xhats.shape[0], self.f_dim])
+        for B in np.arange(len(self.xhats)):
+            values[B] = self.xhats[B].data.cpu().numpy()
+        del self.xhats
 
-            size4d = np.concatenate((padsize, [self.f_dim]))
-            size3d = np.concatenate((padsize, [self.labels]))
+        size4d = np.concatenate((padsize3, [self.f_dim]))
+        size3d = np.concatenate((padsize3, [self.labels]))
 
-            Y = np.zeros(size4d)
-            Y.reshape((np.prod(padsize), self.f_dim))[origindices] = values
-            # remove padding
-            Y = Y[self.pad:-self.pad, self.pad:-self.pad,self.pad:-self.pad]
-            recon = nib.Nifti1Image(Y, affine=affine[d])
-            del Y, values
-            nib.save(recon, filename=intimgname[d])
-            del recon
+        Y = np.zeros(size4d)
+        Y.reshape((np.prod(padsize3), self.f_dim))[origindices] = values
+        # remove padding
+        Y = Y[self.pad:-self.pad, self.pad:-self.pad,self.pad:-self.pad]
+        recon = nib.Nifti1Image(Y, affine=affine)
+        del Y, values
+        nib.save(recon, filename=intimgname)
+        del recon
 
-            X = np.zeros(padsize)
-            X.ravel()[origindices] = maxindices
-            X = X[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
-            recon = nib.Nifti1Image(X.astype(np.int16), affine=affine[d])
-            # recon.header.set_data_dtype(np.int16)
-            del X
+        X = np.zeros(padsize3)
+        X.ravel()[origindices] = maxindices
+        X = X[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
+        recon = nib.Nifti1Image(X.astype(np.int16), affine=affine)
+        # recon.header.set_data_dtype(np.int16)
+        del X
 
-            nib.save(recon, filename=intoutname[d])
-            del recon
+        nib.save(recon, filename=intoutname)
+        del recon
 
-            L = np.zeros(size3d)
-            L.reshape((np.prod(padsize), self.labels))[origindices] = labeled
-            L = L[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
-            labeled_list.append(L.reshape(np.prod(size), 2))
+        L = np.zeros(size3d)
+        L.reshape((np.prod(padsize3), self.labels))[origindices] = labeled
+        L = L[self.pad:-self.pad, self.pad:-self.pad, self.pad:-self.pad]
+        labeled_list.append(L.reshape(np.prod(size), 2))
 
-            del L
-            del orig_indices
+        del L
+        del orig_indices
 
         return labeled_list
 
