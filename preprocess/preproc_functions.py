@@ -32,3 +32,10 @@ def mask(nii, output):
     data[ data > 0] = 1
     recon = nib.Nifti1Image(data, affine)
     nib.save(recon, output)
+
+def resample_xz(nii, output, voxelsize = 0.1, order=3, mode='constant'):
+
+    ypixdim = nii._affine[1,1]
+    resampled = proc.resample_to_output(nii, [voxelsize,ypixdim,voxelsize], order=order, mode=mode)
+    nib.save(resampled, output)
+

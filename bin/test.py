@@ -1,205 +1,279 @@
-import pickle
+# skull-stripping
+
+
 import nibabel as nib
 import time
 import numpy as np
-from preprocess import data_preproc_noupsample
 import uncertainty
-from run import run_two_stage_cnn_orig
 import torch
+from datetime import datetime
+from run import run_two_stage_cnn_orig_truncatedloss_v22
+from preprocess import generate_wmsubgm_mask, generate_obj_files
+from preprocess import data_preproc_v22
 
-d=1
-
-starttime = time.time()
-
-uncertaintytest = True
-
+## hyperparameters
 numchannels = 4
+iterations = 1
+pad = 10
+validation=True
+iterative = 1
+generator = False
+epoch = 10
+gm2wm = 0.5 # ratio of number of voxels (gm to wm) [if skull stripping -> put brain:non-brain]
+csf2wm = 0 # ratio of number of voxels (csf to wm) [0 if skull stripping]
+third_model = False
+numslices =(60,-1,60)
+slices = True
+axes = (True,True,True)
+dataset_portion = 0.50
+pkl = False
+planes = (True, False, True)
 
-# subjs = ['039', '023', '132','002','087', '115','056','072','010','108']
-subjs = ['010','115','056','132','023']
+species = 'rat'
+## set file names and folder paths
+# subjs = {'val':['inj_050_12d','shm_030_30d'], #
+#         'train':[# "inj_025_24h",
+#                 "inj_013_24h",
+#                 "shm_018_24h",
+#                 'inj_023_12d',
+#                 # "shm_036_24h",
+#                 # "inj_050_12d",
+#                 "shm_027_12d",
+#                 "shm_015_12d",
+#                 "inj_008_30d"
+#                 # "inj_038_30d",
+#                 # "shm_033_30d"
+#         ]}
+subjs = {'val': [
+                 ],
+         'train': [#'shm_015_12d'
+                'inj_023_12d','shm_027_12d'
+                   ]}
 
-Ttype= 'T2_N4'
-suffix = 'T2_N4'
-for subj in subjs:
-    #### Load obj = Single test data subject
-    # h5file = '/mnt/data/infant/h5data/train_raw/{0}_ibeatspace_1mm.obj'.format(subj)
-    # h5file = '/mnt/data/infant/h5data/train_raw/025_{0}_1mm_test.obj'.format(Ttype)
-    h5file = '/data/infant/objects/{0}_N4_1mm.obj'.format(subj)
-    # h5file = '/mnt/data/infant/h5data/train_raw/{0}_1mm_ibeat.obj'.format(subj)
-    # obj1ch = '/mnt/data/infant/vae_objs/{0}_T2w_light_3c_unraveledidx_p3_yzxline5_nzy5_norm.obj'.format(subj)
-    # obj1ch = '/mnt/data/infant/vae_objs/{0}_T2w_1mm.obj'.format(subj)
-    # obj1ch = '/mnt/data/infant/processed/train_data/{0}/{0}_T2w_train_morecsf.obj'.format(subj)
-    #### image affine matrix
-    # nii = nib.load('/mnt/data/infant_2019/transformed_labels/{0}/{0}/{0}-C-T1_T2w.1mm.N4.cerebrum.nii.gz'.format(subj))._affine
-    # nii = nib.load('/mnt/data/infant/processed/test_data/{0}/{0}_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj))._affine
-    # nii = nib.load('/data/infant/cerebrum_T2/{0}-C-T1_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj))._affine
-    # nii = nib.load('//nafs/shattuck/yeunkim/infant_images/rebeccabelisle/{0}-C-T1_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj))._affine
-    nii = nib.load('//data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subj))._affine
-    # nii = nib.load('/mnt/data/infant/processed/train_data/{0}/{0}_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj))._affine
-    # nii = nib.load('/mnt/data/infant_2019/transformed_labels/{0}/{0}/{0}-C-T1_T2w.1mm.bse.N4.nii.gz'.format(subj))._affine
-    # nii = nib.load('/ifs/tmp/mmatern/{0}_train_re/{0}_re_T2w.bse.N4.cerebrum.nii.gz'.format(subj))._affine
-    # nii = nib.load('/kahlo/data/T1{0}-5/{0}-skullstripped_anat.nii'.format(subj))._affine
-    #### init output names
-    initinterfeatimg = '/data/infant/intermediate_nii/{0}_{1}ch_initinterfeatimg_{2}.nii.gz'.format(subj, numchannels,suffix)
-    # initoutput = '/mnt/data/infant/processed/test/{0}_{1}channel_test_predicted_noz.dice.nii.gz'.format(subj, numchannels)
-    # initinterfeatimg = '/data/infant/processed/test_data/{0}/{0}_{1}ch_initinterfeatimg.nii.gz'.format(subj, numchannels)
-   # initinterfeatimg = '/data/infant/processed/test_data/TD2/{0}/{0}_{1}ch_initinterfeatimg0.nii.gz'.format(subj,
-                                                                                                      # numchannels)
-    # initinterfeatimg = '/mnt/data/infant/processed/train_data/{0}/{0}_{1}ch_initinterfeatimg.nii.gz'.format(subj, numchannels)
-    # initinterfeatimg = '/mnt/data/infant/processed/test/{0}_5channel_test_x_noz_5ch.nii.gz'.format(subj)
-    initoutput = '/data/infant/intermediate_nii/{0}_{1}ch_initoutput_{2}.nii.gz'.format(subj, numchannels,suffix)
-    # initoutput = '/data/infant/processed/test_data/TD2/{0}/{0}_{1}ch_initoutput0.nii.gz'.format(subj, numchannels)
-    # initoutput = '/mnt/data/infant/processed/train_data/{0}/{0}_{1}ch_initoutput.nii.gz'.format(subj, numchannels)
-    #### cerebrum mask
-    # cerebrum_mask = '/mnt/data/T1{0}-5/{0}-skullstripped_anat.nii'.format(subj)
-    # cerebrum_mask = '/data/transformed_labels/{0}/{0}/{0}-C-T1_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/data/infant/cerebrum_T2/{0}-C-T1_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '//nafs/shattuck/yeunkim/infant_images/rebeccabelisle/{0}-C-T1_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj)
-    cerebrum_mask = '//data/infant/T2_train_2021/{0}-C-T1_T2w.1mm.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/data/infant/processed/test_data/{0}/{0}_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/kahlo/data/T1{0}-5/{0}-skullstripped_anat.nii'.format(subj)
-    # cerebrum_mask = '/mnt/data/infant/processed/train_data/{0}/{0}_T2w.1mm.N4.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/mnt/data/infant_2019/transformed_labels/{0}/{0}/{0}-C-T1_T2w.1mm.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/ifs/tmp/mmatern/{0}_train_re/{0}_re_T2w.bse.N4.cerebrum.mask.nii.gz'.format(subj)
-    # cerebrum_mask = '/mnt/data/{0}-skullstripped_anat.mask.nii'.format(subj)
-    #### 3-channel interm obj
-    # obj3ch = '/mnt/data/infant/vae_objs/{0}_T2w_ants_norm_{1}channel_noz.dice.obj'.format(subj, numchannels)
-    # obj3ch = '/mnt/data/infant/processed/train_data/{0}/{0}_T2w_train_morecsf_obj3ch.obj'.format(subj)
-    # obj3ch = '/mnt/data/infant/vae_objs/{0}_T2w_val_obj{1}ch.obj'.format(subj, numchannels)
-    #### refine output names
-    refineinterfeatimg = '/data/infant/outputs/{0}_refineinterfeatimg_{1}ch_{2}.nii.gz'.format(subj, numchannels,suffix)
-    refineoutput = '/data/infant/outputs/{0}_refineoutput_{1}ch_{2}.nii.gz'.format(subj, numchannels,suffix)
-    # refineinterfeatimg = '/mnt/data/infant/processed/train_data/{0}/{0}_refineinterfeatimg_{1}ch.nii.gz'.format(subj, numchannels)
-    # refineoutput = '/mnt/data/infant/processed/train_data/{0}/{0}_refineoutput_{1}ch.nii.gz'.format(subj, numchannels)
+datadir='/home/lucydunnlocal/Final_Train12/Final_Train12/'
+# datadir = '/allMouseTrainData/'
+for slice_num in [10]:
+    print('Slice interval: {0}'.format(slice_num))
+    print('Dataset portion: {0}'.format(dataset_portion))
+    losses_folder = '/data/{0}/losses/'.format(species)
+    checkpoints_folder = '/data/{0}/checkpoints/'.format(species)
+    intermediate_folder = '/data/{0}/intermediate_nii/'.format(species)
+    outputs_folder = '/data/{0}/outputs/'.format(species)
+    objects_folder = '/data/{0}/objects/'.format(species)
+    fns_whole = ['/{1}/{0}_p10_xz.h5'.format(subjs['train'][i],objects_folder) for i in range(len(subjs['train']))]
+    # niis = [nib.load('/data/{1}/{2}/{0}/brain.reorient.resampled0.1mm.int16.label.nii.gz'.format(subjs['train'][i], species, datadir))._affine for i in range(len(subjs['train']))]
+    # labels = ['/data/{1}/{2}/{0}/brain.reorient.resampled0.1mm.int16.label.nii.gz'.format(subjs['train'][i], species, datadir) for i in range(len(subjs['train']))]
+    # data = ['/data/{1}/{2}/{0}/anat.reorient.resampled0.1mm.nii.gz'.format(subjs['train'][i],species, datadir) for i in range(len(subjs['train']))]
+    data = ['/{0}/{1}/2T2star_MEAN.nii.gz'.format(datadir, subjs['train'][i]) for i in
+            range(len(subjs['train']))]
+    niis = [nib.load('/{0}/{1}/2T2star_MEAN.nii.gz'.format(datadir, subjs['train'][i]))._affine for i in
+            range(len(subjs['train']))]
+    mean = []
+    var = []
 
+    starttime = time.time()
+    for ITER in np.arange(iterative):
+        print('Starting iteration number {0}'.format(ITER+1))
+        suffix = '2022_{0}slices'.format(slice_num) + str(ITER+1)
 
-    ## uncertainty file
-    uncertfn = '/data/infant/vae_objs/{0}_vars_10.obj'.format(subj)
+        ############################################################################################
+        ############################################################################################
+        ### train the 1st model
+        ############################################################################################
+        ############################################################################################
+        initinterfeatimgs_alliterations = []
+        initoutputs_alliterations = []
+        initimodels = []
+        for ii in np.arange(4,5):
+            label_OHEs = []
+            textfn = '/{1}/avglosses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),losses_folder)
+            with open(textfn, 'w') as f:
+                f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
+            print('Starting first model training, iteration number {0}, uncertainty iteration {1}'.format(ITER + 1, ii+1))
+            solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(fns_whole, epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=3000,
+                                            labels=2, shuffle=True, pad=pad, channels=1, textfn = textfn, suffix=suffix,
+                                            numslices= numslices, slices=slices, axes = axes, dataset_portion=dataset_portion, twoplane=planes
+                                            )
+            # initmodel = ('/{4}/init_e{1}_f{0}_i{2}_{3}.pth'.format(numchannels,int(epoch),ii,suffix,checkpoints_folder))
+            initmodel = '/data/{0}/checkpoints/'.format('mouse') + '/init_e5_f4_i3_2022_10slices1.pth'
 
-    ## fns
-    # ext = 'obj'
-    # light = ''
-    # fn4 = '/mnt/data/infant/h5data/train_raw/002_erode_edit10_1mm_light.h5'
-    # fn5 = '/mnt/data/infant/h5data/train_raw/002_nobias_edit10_1mm_light.h5'
-    # fn6 = '/mnt/data/infant/h5data/train_raw/002_bias_edit10_1mm_light.h5'
-    # fn4 = '/mnt/data/infant/h5data/train_raw/002_erode_edit10_1mm{1}.{0}'.format(ext, light)
-    # fn5 = '/mnt/data/infant/h5data/train_raw/002_nobias_edit10_1mm{1}.{0}'.format(ext, light)
-    # fn6 = '/mnt/data/infant/h5data/train_raw/002_bias_edit10_1mm{1}.{0}'.format(ext, light)
-    # fns = [fn4, fn5, fn6]
-    fns = [h5file]
-    #### param settings
+            solver.model.load_state_dict(torch.load(initmodel))
+            initinterfeatimgs = []
+            initoutputs = []
+            for i in np.arange(len(fns_whole)):
+                initinterfeatimg = '/{6}/{4}_{0}ch_initinterfeatimg_e{1}_i{3}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i], suffix,intermediate_folder)
+                initoutput = '/{6}/{4}_{0}ch_initoutput_e{1}_i{3}_f{2}_{5}.nii.gz'.format(numchannels, epoch, i, ii, subjs['train'][i],suffix,intermediate_folder)
+                initinterfeatimgs.append(initinterfeatimg)
+                initoutputs.append(initoutput)
+                initinterfeatimgs_alliterations.append(initinterfeatimgs)
+                initoutputs_alliterations.append(initoutputs)
 
-    multiinput=False
-    threedim=False
-
-################################################################################################
-############ START ################################################
-
-# file_obj = open(obj1ch, 'rb')
-# test1 = pickle.load(file_obj)
-    if uncertaintytest:
-        iterative= True
-        mean = []
-        var = []
-        iterations = 2
-        epoch = 5
-        for i in np.arange(iterations):
-            solver = run_two_stage_cnn_orig.Solver([fns[0]], epoch=epoch, lr=5e-4, f_dim=numchannels, batch_size=1000,
-                                                   in_features=1, labels=3, shuffle=True,
-                                                   channels=1, coords=False, DL=False, softdiceloss=False, dropout=False)
-            #solver.model.load_state_dict(torch.load(
-            #    '/mnt/data/infant/checkpoints/init_e{1}_lr5e4_f{0}_i{2}_checkpoint_probmean.pth'.format(numchannels, epoch, i)))
-            solver.model.load_state_dict(torch.load('/oldmiro/data/SSD_data/infant/checkpoints/init_e10_lr5e4_f4_i3_checkpoint_3input_6data.pth'))
-
-            label_OHE = solver.test([initinterfeatimg], [initoutput], [nii], batchsize=10000)
-            # label_OHE = misc_test.uncertest(solver.model, initinterfeatimg, initoutput, nii, dataloader=dataloader, uncertainty=False)
-            mean, var = uncertainty.compute_var_mean(label_OHE, mean, var, i)
-                # del solver
-
-        # size = testdata.dataset.dataOrigShape
-        uncertainty.render_uncert_imgs([h5file], var, [nii], [subj], numchannels, iterations, mean=mean, pkl=True, suffix=suffix)
-
-
-        ##### perform image pre-processing on the intermediate feature image
-        obj = '/data/infant/objects/{2}_{0}ch_initinterfeatimg_e{1}_{3}'.format(numchannels, epoch, subj,suffix)
-        # data_preproc_h5_light.imagepatches(
-        #     fname=initinterfeatimg,
-        #     mask=cerebrum_mask,
-        #     label=cerebrum_mask, fnoutput= obj,
-        #     gm=2, wm=1, csf=3, num_classes=4, channels=numchannels,
-        #     pad=5, normalize=False
-        # )
-        data0 = data_preproc_noupsample.imagepatches(
-            fname=initinterfeatimg,
-            mask=cerebrum_mask,
-            label=cerebrum_mask,
-            gm=2, wm=1, csf=3, num_classes=4, channels=numchannels,
-            masklabel=True, pad=5, normalize=False)
-        file_obj = open('{0}.obj'.format(obj), 'wb')
-        pickle.dump(data0, file_obj, protocol=4)
-        file_obj.close()
-
-        uncertnii = '/data/infant/variance/{0}_vars_i{2}_{1}ch_en_0_{3}.nii.gz'.format(subj, numchannels, iterations, suffix)
-        uncert = '/data/infant/objects/{2}_{0}ch_uncert_e{1}_i{3}_{4}'.format(numchannels, epoch, subj, iterations,suffix)
-        # data_preproc_h5_light.imagepatches(
-        #     fname=uncertnii,
-        #     mask=cerebrum_mask,
-        #     label=cerebrum_mask, fnoutput= uncert,
-        #     gm=2, wm=1, csf=3, num_classes=4, channels=3,
-        #     pad=5, normalize=False
-        # )
-        data0 = data_preproc_noupsample.imagepatches(
-            fname=uncertnii,
-            mask=cerebrum_mask,
-            label=cerebrum_mask,
-            gm=2, wm=1, csf=3, num_classes=4, channels=3,
-            pad=5, normalize=False)
-        file_obj = open('{0}.obj'.format(uncert), 'wb')
-        pickle.dump(data0, file_obj, protocol=4)
-        file_obj.close()
-
-        # probmeannii ='/data/infant/{0}_means_i{2}_{1}ch_en_0_{3}.nii.gz'.format(subj, numchannels, iterations, suffix)
-        # probmean = '/data/infant/{3}_{0}ch_probmean_e{1}_i{2}_{4}'.format(numchannels, epoch,  iterations,
-        #                                                                               subj, suffix)
-        # data0 = data_preproc_noupsample.imagepatches(
-        #     fname=initoutput,
-        #     mask=cerebrum_mask,
-        #     label=cerebrum_mask,
-        #     gm=2, wm=1, csf=3, num_classes=4, # channels=3,
-        #     masklabel=True, pad=5, normalize=False)
-        # file_obj = open('{0}.{1}'.format(probmean, 'obj'), 'wb')
-        # pickle.dump(data0, file_obj, protocol=4)
+            for TD in range(0,len(fns_whole)):
+                print(data[TD])
+                datastruct = data_preproc_v22.imagepatches(fname=data[TD], num_classes=2, pad=pad, masklabel=False, ram=True)
+                dataset = datastruct.return_data_struct()
+                del datastruct
+                label_OHE = solver.test(initinterfeatimgs[TD], initoutputs[TD], niis[TD], dataset= dataset, batchsize=3000, num_workers=6)
+                del dataset
+                label_OHEs.append(label_OHE)
+            mean, var = uncertainty.compute_var_mean(label_OHEs, mean, var, ii)
+            del label_OHE
 
 
+        ############################################################################################
+        ############################################################################################
+        ### compute uncertainty images
+        ############################################################################################
+        ############################################################################################
+        uncertainty.render_uncert_imgs(fns_whole, var, niis,
+                                       subjs['train'], numchannels, iterations,species, pkl=pkl, suffix=suffix)
+        if validation:
+            uncertainty.render_uncert_imgs(valfns_whole, valvar, valniis,
+                                           subjs['val'], numchannels, iterations, species, pkl=pkl, suffix='val'+suffix)
+        del var, valvar, mean, valmean
 
-        ###### load intermediate feature image
-        # file_obj = open(obj3ch, 'rb')
-        # test1 = pickle.load(file_obj)
+        #### Choose which model/intermediate dataset
+        initinterfeatimgs_for_refstage, initoutputs_for_refstage, \
+        valinitinterfeatimgs_for_refstage, valinitoutputs_for_refstage, smallestidx = uncertainty.select_best_model(gm2wm, csf2wm, iterations,
+                                                        initoutputs_alliterations, initimodels, initinterfeatimgs_alliterations,
+                                                        valinitinterfeatimgs, validation=True)
+        print('First model finished. Generating pickled images, iteration number {0}'.format(ITER + 1))
 
-        ############# Load refinement model
-        # model_obj = open(refmodel, 'rb')
-        # solver = pickle.load(model_obj)
-        epoch2 = 5
-        solver = run_two_stage_cnn_orig.Solver(['{0}.obj'.format(obj)], epoch=epoch2, lr=5e-4, f_dim=numchannels, batch_size=1000,
-                                               in_features=1,
-                                               labels=3,
-                                               shuffle=True, channels=numchannels, coords=False, DL=False,
-                                               softdiceloss=False,
-                                               uncertainty=True, uncertfn=['{0}.obj'.format(uncert)], channels2=3
-                                               )
+        ############################################################################################
+        ############################################################################################
+        ### generate obj files
+        ############################################################################################
+        ############################################################################################
+        uncertniis = []
+        valuncertniis = []
+        objs = []
+        uncerts = []
+        valobjs = []
+        valuncerts = []
+        objs_whole = []
+        uncerts_whole = []
+        valobjs_whole = []
+        valuncerts_whole = []
+        for i in np.arange(len(fns_whole)):
+            uncertniis.append('/data/{5}/variance/{0}_vars_i{2}_{1}ch_en_{3}_{4}.nii.gz'.format(
+                subjs['train'][i], numchannels, iterations, i, suffix, species))
+            # fname = generate_obj_files.generate_mask(initinterfeatimgs_for_refstage[i].split('.')[0], fns_whole[i])
+            obj = '/{6}/{4}_{0}ch_initinterfeatimg_e{1}_i{3}_{5}'.format(
+                numchannels, epoch, i, smallestidx, subjs['train'][i], suffix,objects_folder)
+            objs.append('{0}.h5'.format(obj))
+            generate_obj_files.generate_h5_files(obj, initinterfeatimgs_for_refstage[i], None, labels[i])
+            uncert = '//{6}/{4}_{0}ch_uncert_e{1}_f{2}_i{3}_{5}'.format(numchannels, epoch, i, smallestidx,
+                                                                        subjs['train'][i], suffix,objects_folder)
+            uncerts.append('{0}.h5'.format(uncert))
+            generate_obj_files.generate_h5_files(uncert, uncertniis[i], None, labels[i])
+
+        if validation:
+            for i in np.arange(len(valfns_whole)):
+                valuncertniis.append(
+                    '//data/{5}/variance/{0}_vars_i{2}_{1}ch_en_{3}_val{4}.nii.gz'.format(
+                        subjs['val'][i], numchannels, iterations, i,suffix, species))
+                # fname = generate_obj_files.generate_mask(valinitinterfeatimgs_for_refstage[i].split('.')[0], valfns_whole[i])
+                obj = '//{6}/{4}_{0}ch_valinitinterfeatimg_e{1}_i{3}_{5}'.format(
+                    numchannels, epoch,i, smallestidx, subjs['val'][i], suffix,objects_folder)
+                valobjs.append('{0}.h5'.format(obj))
+                generate_obj_files.generate_h5_files(obj, valinitinterfeatimgs_for_refstage[i],None, vallabels[i])
+                uncert = '//{6}/{4}_{0}ch_valuncert_e{1}_f{2}_i{3}_{5}'.format(
+                    numchannels, epoch, i,smallestidx,subjs['val'][i], suffix,objects_folder)
+                valuncerts.append('{0}.h5'.format(uncert))
+                generate_obj_files.generate_h5_files(uncert, valuncertniis[i], None, vallabels[i])
+
+
+        ############################################################################################
+        ############################################################################################
+        ### train the 2nd stage model
+        ############################################################################################
+        ############################################################################################
+        # path = '/data/rat/objects/'
+        # objs = [path + '{0}_4ch_initinterfeatimg_e10_i4_2022_50slices1.h5'.format(subjs['train'][i]) for i in range(len(subjs['train']))]
+        # uncerts = [path + '{0}_4ch_uncert_e10_f{1}_i4_2022_50slices1.h5'.format(subjs['train'][i],i) for i in range(len(subjs['train']))]
+        # valobjs = [path + '{0}_4ch_valinitinterfeatimg_e10_i4_2022_50slices1.h5'.format(subjs['val'][i]) for i in range(len(subjs['val']))]
+        # valuncerts = [path + '{0}_4ch_valuncert_e10_f{1}_i4_2022_50slices1.h5'.format(subjs['val'][i],i) for i in range(len(subjs['val'])) ]
+        # path2 = '/data/rat/intermediate_nii/'
+        # path3 = '/data/rat/variance/'
+        # initinterfeatimgs_for_refstage = [path2 +'{0}_4ch_initinterfeatimg_e10_i4_2022_50slices1.nii.gz'.format(subjs['train'][i],i) for i in range(len(subjs['train']))]
+        # uncertniis = [path3 +'{0}_vars_i5_4ch_en_{1}_2022_50slices1.nii.gz'.format(subjs['train'][i],i) for i in range(len(subjs['train']))]
+        # valinitinterfeatimgs_for_refstage = [path2 +'{0}_4ch_valinitinterfeatimg_e10_i4_2022_50slices1.nii.gz'.format(subjs['val'][i],i) for i in range(len(subjs['val']))]
+        # valuncertniis = [path3 +'{0}_vars_i5_4ch_en_{1}_val2022_50slices1.nii.gz'.format(subjs['val'][i],i) for i in range(len(subjs['val']))]
+
+        textfn = '/{1}/secondmodel_train_losses_{0}.txt'.format(datetime.today().strftime('%Y%m%d%h%m%s'),losses_folder)
+        numchannels2 = 10
+        epoch = 1
+        with open(textfn, 'w') as f:
+            f.write("{0}\t{1}\t{2}\n".format('label_losses_cat', 'label_losses_mod_cat', 'total_losses_cat'))
+        solver = run_two_stage_cnn_orig_truncatedloss_v22.Solver(objs, epoch=epoch, lr=5e-4, f_dim=numchannels2, batch_size=30000, labels=2,
+                                                             shuffle=True, channels=numchannels, pad=pad,  textfn=textfn,
+                                                             uncertainty=True, uncertfn= uncerts, channels2=2, valobj=valobjs, valuncertfn=valuncerts,
+                                                                 numslices=numslices, slices=slices, axes=axes,
+                                                                 dataset_portion=dataset_portion, twoplane=planes
+                                                             )
+        print('Starting second model training, iteration number {0}'.format(ITER + 1))
+        solver.train()
+        refmodel = '/{3}/ref_e{0}_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix,checkpoints_folder)
         # solver.model.load_state_dict(torch.load(
-        #     '/mnt/data/infant/checkpoints/ref_e{0}_lr5e4_f{1}_i{2}_checkpoint_probmean.pth'.format(epoch2, numchannels,iterations)))
-        solver.model.load_state_dict(torch.load(
-            '/oldmiro/data/SSD_data/infant/checkpoints/ref_e10_lr5e4_f4_i4_checkpoint_3input_6data.pth'))
+        #     '/{3}/ref_e{0}_lr5e4_f{1}_checkpoint_model_{2}.pth'.format(epoch, numchannels,suffix,checkpoints_folder)))
+        torch.save(solver.model.state_dict(), refmodel)
 
-        for i in np.arange(iterations):
-            label_OHE = solver.test([refineinterfeatimg], [refineoutput], [nii],
-                                    batchsize=10000)
-            mean, var = uncertainty.compute_var_mean(label_OHE, mean, var, i)
-        uncertainty.render_uncert_imgs([h5file], var, [nii], [subj+'_ref'], numchannels, iterations, mean=mean, pkl=True)
-        # label_OHE = misc_test.uncertest(solver.model, refineinterfeatimg, refineoutput, nii, dataloader=dataloader, uncertainty=True)
-        # size = test1.dataOrigShape[:3]
-        # X = solver.test(dataloader, size, test1.indices, test1.dataUpsampledShape, test1.patchsize)
+        refineinterfeatimgs =[]
+        refineoutputs = []
+        for v in np.arange(len(objs)):
+            refineinterfeatimg = '/{6}/{4}_{0}ch_refineinterfeatimg_added_e{1}_i{3}_{5}.nii.gz'.format(numchannels,
+                                                                                                                 epoch, v, 0, subjs['train'][v],suffix,outputs_folder)
+            refineoutput = '/{6}/{4}_{0}ch_refineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(numchannels, epoch, v, 0,
+                                                                                                             subjs['train'][v],suffix,outputs_folder)
+            refineinterfeatimgs.append(refineinterfeatimg)
+            refineoutputs.append(refineoutput)
 
-elapsed = time.time() - starttime
-print(elapsed)
+        for TD in range(0, len(fns_whole)):
+            datastruct = data_preproc_v22.imagepatches(fname=initinterfeatimgs_for_refstage[TD], label=labels[TD], num_classes=2, pad=5,
+                                                       masklabel=True, ram=True, normalize=False)
+            dataset = datastruct.return_data_struct()
+            del datastruct
+            datastruct = data_preproc_v22.imagepatches(fname=uncertniis[TD], label=labels[TD],
+                                                       num_classes=2, pad=5, normalize=False,
+                                                       masklabel=True, ram=True)
+            dataset2 = datastruct.return_data_struct()
+            del datastruct
+            label_OHE = solver.test(refineinterfeatimgs[TD], refineoutputs[TD], niis[TD], dataset=dataset, batchsize=10000,
+                                    num_workers=6, dataset2=dataset2, dontWriteInter=True)
+            del dataset, dataset2
+
+        # label_OHE = solver.test(refineinterfeatimgs, refineoutputs, niis, batchsize=20000, imgs=objs, uncertfn=uncerts) #,
+        del label_OHE
+        del solver.data, solver.dataloader, solver.valdata, solver.valdataloader
+
+        if validation:
+            valrefineinterfeatimgs = []
+            valrefineoutputs = []
+            for i in np.arange(len(valobjs)):
+                valrefineinterfeatimg = '/{6}/{4}_{0}ch_valrefineinterfeatimg_added_e{1}_i{3}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, 0,subjs['val'][i], suffix,outputs_folder)
+                valrefineoutput = '/{6}/{4}_{0}ch_valrefineoutput_added_e{1}_f{2}_i{3}_{5}.nii.gz'.format(
+                    numchannels, epoch, i, 0,subjs['val'][i], suffix,outputs_folder)
+                valrefineinterfeatimgs.append(valrefineinterfeatimg)
+                valrefineoutputs.append(valrefineoutput)
+
+            for TD in range(0, len(valfns_whole)):
+                datastruct = data_preproc_v22.imagepatches(fname=valinitinterfeatimgs_for_refstage[TD], label=vallabels[TD],
+                                                           num_classes=2, pad=5,
+                                                           masklabel=True, ram=True, normalize=False)
+                dataset = datastruct.return_data_struct()
+                del datastruct
+                datastruct = data_preproc_v22.imagepatches(fname=valuncertniis[TD], label=vallabels[TD],
+                                                           num_classes=2, pad=5, normalize=False,
+                                                           masklabel=True, ram=True)
+                dataset2 = datastruct.return_data_struct()
+                del datastruct
+                label_OHE = solver.test(valrefineinterfeatimgs[TD], valrefineoutputs[TD], valniis[TD], dataset=dataset,
+                                        batchsize=10000, num_workers=6, dataset2=dataset2, dontWriteInter=True)
+                del dataset, dataset2
+
+            # label_OHE = solver.test(valrefineinterfeatimgs, valrefineoutputs, valniis, batchsize=20000, imgs=valobjs, uncertfn=valuncerts)
+            del label_OHE
+        ## time
+        elapsed = time.time() - starttime
+        print(elapsed/60)

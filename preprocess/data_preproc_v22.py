@@ -173,7 +173,8 @@ class imagepatches(object):
             chunks=None
             with h5py.File(self.fnoutput + '.h5', "w") as f:
                 f.create_dataset('data', data=data['data'], chunks=chunks)
-                f.create_dataset('targets', data=self.label, chunks=chunks)
+                if not self.label is None:
+                    f.create_dataset('targets', data=self.label, chunks=chunks)
                 f.create_dataset('mask', data=self.mask, chunks=chunks)
                 f.attrs['bounds'] = data['bounds']
                 f.attrs['datasetNum'] = self.dataNum

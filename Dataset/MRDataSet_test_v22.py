@@ -67,7 +67,8 @@ class MRDataSet(Dataset):
 
         ## compute plane locations
         bounds = self.dataset.bounds
-        empty_mask = np.zeros_like(self.dataset.data, dtype=np.int)
+        shape = self.dataset.data.shape
+        empty_mask = np.zeros(shape[:3], dtype=np.int)
         self.shape = empty_mask.shape
         if self.slices:
             dims = np.asarray([bounds[0][1] - bounds[0][0], bounds[1][1] - bounds[1][0], bounds[2][1] - bounds[2][0]])

@@ -91,8 +91,9 @@ class MRDataSet(Dataset):
                         empty_mask[:,:,self.axis_locs[2]] = 1
                 else:
                     empty_mask[self.dataset['mask'][:] > 0] = 1
-                if self.dataset['targets']:
+                if 'targets' in self.dataset.keys():
                     empty_mask[(self.dataset['mask'][:] == 0) | (self.dataset['targets'][:] == 4)]= 0
+                    self.labels = self.dataset['targets'][empty_mask > 0]
                 else:
                     empty_mask[(self.dataset['mask'][:] == 0)] = 0
                 self.idxs = np.asarray(np.where(empty_mask>0))

@@ -38,12 +38,12 @@ def generate_obj_files(obj,img,mask,label,numchannels=4,num_classes=3, pad=5):
         pickle.dump(data0, file_obj, protocol=4)
         file_obj.close()
 
-def generate_h5_files(filename,img,mask,label=None, masklabel = True):
+def generate_h5_files(filename,img,mask,label=None, masklabel = True, pad = 5, skullstrip=True):
     data_preproc_v22.imagepatches(
         fname=img,
         mask=mask,
         label=label,
         fnoutput=filename,
-        gm=2, wm=1, csf=3, pad=5,normalize=False,
+        gm=2, wm=1, csf=3, pad=pad,normalize=False, skullstrip=skullstrip,
         # k_t2=4, k_t2_init=[300, 60, 640, 950], ## use if normalization goes wrong
         masklabel=masklabel)
