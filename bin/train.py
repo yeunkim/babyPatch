@@ -9,7 +9,7 @@ import itertools
 import numpy as np
 import MRDataSet2_mult_dataset
 import data_preproc_noupsample
-import uncertainty
+import uncertainty.uncertainty as uncertainty
 import run_two_stage_cnn_h5
 import torch
 import data_preproc_h5
